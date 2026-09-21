@@ -1,0 +1,6 @@
+{
+  "name": "Ask UniBot",
+  "description": "Trusted group memory and personal participation companion for the METI UniPods AI Innovation Programme.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
