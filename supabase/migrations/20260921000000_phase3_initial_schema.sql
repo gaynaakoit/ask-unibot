@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS handover_tickets (
   participant_context TEXT,
   question TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_review', 'confirmed', 'corrected', 'superseded', 'resolved')),
+  conflict_summary TEXT,
   detected_conflict TEXT,
   conflict_or_missing TEXT,
   evidence JSONB,
@@ -241,6 +242,21 @@ ALTER TABLE question_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE handover_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
+-- Helper function to check if caller is admin without triggering RLS recursion
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.users
+    WHERE id = auth.uid()::text
+      AND role = 'admin'
+  );
+$$;
+
 -- 1. SOURCES RLS: Public/Participants can read approved sources; Admins can manage all
 CREATE POLICY "Public and participants can read approved sources"
   ON sources FOR SELECT
@@ -250,7 +266,7 @@ CREATE POLICY "Admins can manage sources"
   ON sources FOR ALL
   USING (
     auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 -- 2. KNOWLEDGE CHUNKS RLS: Public/Participants can read approved chunks
@@ -262,7 +278,7 @@ CREATE POLICY "Admins can manage knowledge chunks"
   ON knowledge_chunks FOR ALL
   USING (
     auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 -- 3. DECISIONS RLS: Public and participants can read all decisions
@@ -274,7 +290,7 @@ CREATE POLICY "Admins can manage decisions"
   ON decisions FOR ALL
   USING (
     auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 -- 4. MEETINGS RLS: Public and participants can read meetings
@@ -286,7 +302,7 @@ CREATE POLICY "Admins can manage meetings"
   ON meetings FOR ALL
   USING (
     auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 CREATE POLICY "Public and participants can read meeting decisions"
@@ -297,7 +313,7 @@ CREATE POLICY "Admins can manage meeting decisions"
   ON meeting_decisions FOR ALL
   USING (
     auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 -- 5. ACTIONS RLS: Users can read and update their own actions
@@ -338,7 +354,7 @@ CREATE POLICY "Users can view own handover tickets"
     auth.role() = 'service_role' OR
     participant_id = auth.uid()::text OR
     is_demo = TRUE OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 CREATE POLICY "Anyone can create handover tickets"
@@ -349,7 +365,7 @@ CREATE POLICY "Admins can update handover tickets"
   ON handover_tickets FOR UPDATE
   USING (
     auth.role() = 'service_role' OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 -- 8. USERS RLS: Users can read own profile; Admins can manage users
@@ -358,7 +374,7 @@ CREATE POLICY "Users can view own profile"
   USING (
     auth.role() = 'service_role' OR
     id = auth.uid()::text OR
-    EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid()::text AND users.role = 'admin')
+    public.is_admin()
   );
 
 -- 9. NOTIFICATIONS RLS: Users can view their own notifications
@@ -368,3 +384,46 @@ CREATE POLICY "Users can view own notifications"
     auth.role() = 'service_role' OR
     user_id = auth.uid()::text
   );
+
+-- ==============================================================================
+-- SCHEMA & TABLE PERMISSIONS (Least Privilege Architecture)
+-- ==============================================================================
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+-- SERVICE_ROLE: Backend Express server full administrative operations
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO service_role;
+
+-- KNOWLEDGE BASE: Read-only access for participants and public visitors
+GRANT SELECT ON public.sources TO anon, authenticated;
+GRANT SELECT ON public.knowledge_chunks TO anon, authenticated;
+GRANT SELECT ON public.decisions TO anon, authenticated;
+GRANT SELECT ON public.meetings TO anon, authenticated;
+GRANT SELECT ON public.meeting_decisions TO anon, authenticated;
+
+-- PARTICIPANT INTERACTION: Questions & Handover Tickets
+GRANT SELECT, INSERT ON public.questions TO anon, authenticated;
+GRANT SELECT, INSERT ON public.question_sources TO anon, authenticated;
+GRANT SELECT, INSERT ON public.handover_tickets TO anon, authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+
+-- PARTICIPANT ACTIONS: Authenticated users manage own actions; anon reads demo tasks
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.actions TO authenticated;
+GRANT SELECT ON public.actions TO anon;
+
+-- PROFILES & USERS
+GRANT SELECT ON public.users TO anon, authenticated;
+GRANT UPDATE (name, avatar_url, track, updated_at) ON public.users TO authenticated;
+
+-- NOTIFICATIONS
+GRANT SELECT ON public.notifications TO anon, authenticated;
+GRANT UPDATE (read) ON public.notifications TO authenticated;
+
+-- ROUTINES (Functions)
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
+
+-- DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO anon, authenticated;

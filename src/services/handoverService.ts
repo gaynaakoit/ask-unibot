@@ -5,10 +5,26 @@
  */
 
 import { HumanHandoverTicket, SourceEvidenceItem } from '../types';
-import { INITIAL_HANDOVER_TICKETS } from '../data/demoData';
+import { defaultKnowledgeRepository, KnowledgeRepository } from './knowledgeRepository';
 
 export class HandoverService {
-  private tickets: HumanHandoverTicket[] = [...INITIAL_HANDOVER_TICKETS];
+  private tickets: HumanHandoverTicket[] = [];
+
+  public async loadFromRepository(repository: KnowledgeRepository = defaultKnowledgeRepository): Promise<HumanHandoverTicket[]> {
+    try {
+      const data = await repository.getHandoverTickets();
+      if (data && data.length > 0) {
+        this.tickets = data;
+      }
+    } catch (err) {
+      console.warn('HandoverService loadFromRepository error:', err);
+    }
+    return this.tickets;
+  }
+
+  public setTickets(tickets: HumanHandoverTicket[]) {
+    this.tickets = [...tickets];
+  }
 
   public getTickets(): HumanHandoverTicket[] {
     return [...this.tickets];
@@ -26,7 +42,7 @@ export class HandoverService {
     participantContext?: string;
     recommendedAdmin?: string;
     evidence?: string | SourceEvidenceItem[];
-  }): HumanHandoverTicket {
+  }, repository: KnowledgeRepository = defaultKnowledgeRepository): HumanHandoverTicket {
     const newTicket: HumanHandoverTicket = {
       id: `ticket-${Date.now()}`,
       question: params.question,
@@ -42,13 +58,18 @@ export class HandoverService {
     };
 
     this.tickets.unshift(newTicket);
+    repository.saveHandoverTicket(newTicket).catch((err) => {
+      console.warn('Failed to persist ticket to Supabase:', err);
+    });
+
     return newTicket;
   }
 
   public resolveTicket(
     ticketId: string,
     adminResponse: string,
-    resolutionStatus: 'confirmed' | 'corrected' | 'superseded' | 'resolved' = 'resolved'
+    resolutionStatus: 'confirmed' | 'corrected' | 'superseded' | 'resolved' = 'resolved',
+    repository: KnowledgeRepository = defaultKnowledgeRepository
   ): HumanHandoverTicket | null {
     const ticket = this.tickets.find((t) => t.id === ticketId);
     if (!ticket) return null;
@@ -57,8 +78,17 @@ export class HandoverService {
     ticket.adminResponse = adminResponse;
     ticket.resolutionNote = adminResponse;
     ticket.resolvedAt = new Date().toISOString();
+
+    repository.updateHandoverTicket(ticketId, {
+      status: resolutionStatus,
+      adminResponse,
+      resolutionNote: adminResponse,
+    }).catch((err) => {
+      console.warn('Failed to update ticket in Supabase:', err);
+    });
+
     return ticket;
   }
 }
 
-export const handoverService = new HandoverService();
+export const defaultHandoverService = new HandoverService();

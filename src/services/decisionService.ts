@@ -4,7 +4,7 @@
  */
 
 import { MeetingDecision } from '../types';
-import { INITIAL_MEETINGS } from '../data/demoData';
+import { defaultKnowledgeRepository, KnowledgeRepository } from './knowledgeRepository';
 
 export class DecisionService {
   private decisions: MeetingDecision[] = [];
@@ -13,38 +13,20 @@ export class DecisionService {
     if (initialDecisions && initialDecisions.length > 0) {
       this.decisions = [...initialDecisions];
     } else {
-      // Seed decisions from meeting records
-      const seeded: MeetingDecision[] = [];
-      INITIAL_MEETINGS.forEach((m) => {
-        m.decisions.forEach((d) => {
-          seeded.push({
-            ...d,
-            status: d.supersedesPrevious ? 'active' : 'active',
-            sourceId: 'src-5',
-            effectiveFrom: d.date,
-          });
-        });
-      });
-      // Add standard core decision for prototype deadline
-      seeded.push({
-        id: 'dec-proto-29',
-        topic: 'Prototype Submission Deadline',
-        title: 'Prototype concept submission deadline extended to Tuesday, 29 September 2026 at 23:59 WAT.',
-        decision: 'Prototype concept submission deadline extended to Tuesday, 29 September 2026 at 23:59 WAT.',
-        date: '21 Sep 2026',
-        sourceId: 'src-2',
-        status: 'active',
-        supersedesPrevious: true,
-        supersedesDecisionId: 'dec-proto-27',
-        supersedesNote: 'Officially supersedes preliminary 27 September date from 18 Sep.',
-        impact: 'Gives all 62 teams a 48-hour buffer for rural customer interviews.',
-        effectiveFrom: '21 Sep 2026',
-        confirmedBy: 'Dr. Aminata Touré & Eng. Kwame Mensah',
-        notes: 'Confirmed in 21 Sep Cohort Briefing.',
-      });
-
-      this.decisions = seeded;
+      this.decisions = [];
     }
+  }
+
+  public async loadFromRepository(repository: KnowledgeRepository = defaultKnowledgeRepository): Promise<MeetingDecision[]> {
+    try {
+      const repoDecisions = await repository.getDecisions();
+      if (repoDecisions && repoDecisions.length > 0) {
+        this.decisions = repoDecisions;
+      }
+    } catch (err) {
+      console.warn('DecisionService loadFromRepository fallback:', err);
+    }
+    return this.decisions;
   }
 
   public getAllDecisions(): MeetingDecision[] {
@@ -59,7 +41,7 @@ export class DecisionService {
     return this.decisions.find((d) => d.id === id);
   }
 
-  public recordDecision(newDecision: MeetingDecision): MeetingDecision {
+  public recordDecision(newDecision: MeetingDecision, repository: KnowledgeRepository = defaultKnowledgeRepository): MeetingDecision {
     if (newDecision.supersedesDecisionId) {
       this.supersedeDecision(
         newDecision.supersedesDecisionId,
@@ -69,17 +51,20 @@ export class DecisionService {
     }
 
     const existingIndex = this.decisions.findIndex((d) => d.id === newDecision.id);
+    let finalDecision: MeetingDecision;
     if (existingIndex >= 0) {
       this.decisions[existingIndex] = { ...this.decisions[existingIndex], ...newDecision };
-      return this.decisions[existingIndex];
+      finalDecision = this.decisions[existingIndex];
     } else {
-      const decisionWithDefaults: MeetingDecision = {
+      finalDecision = {
         status: 'active',
         ...newDecision,
       };
-      this.decisions.unshift(decisionWithDefaults);
-      return decisionWithDefaults;
+      this.decisions.unshift(finalDecision);
     }
+
+    repository.saveDecision(finalDecision).catch((err) => console.warn('Record decision repo error:', err));
+    return finalDecision;
   }
 
   public supersedeDecision(oldId: string, supersedingId: string, note?: string) {
@@ -90,14 +75,22 @@ export class DecisionService {
     }
   }
 
-  public resolveConflict(topic: string, confirmedDecisionText: string, confirmedBy: string): MeetingDecision {
+  public resolveConflict(
+    topic: string,
+    confirmedDecisionText: string,
+    confirmedBy: string,
+    supersedesDecisionId?: string,
+    repository: KnowledgeRepository = defaultKnowledgeRepository
+  ): MeetingDecision {
     // Mark matching older decisions as superseded
     this.decisions.forEach((d) => {
       if (
+        (supersedesDecisionId && d.id === supersedesDecisionId) ||
         (d.topic && d.topic.toLowerCase().includes(topic.toLowerCase())) ||
         d.title.toLowerCase().includes(topic.toLowerCase())
       ) {
         d.status = 'superseded';
+        d.supersedesNote = `Superseded by resolution by ${confirmedBy}`;
       }
     });
 
@@ -109,12 +102,22 @@ export class DecisionService {
       date: '21 Sep 2026',
       status: 'active',
       supersedesPrevious: true,
+      supersedesDecisionId,
       confirmedBy,
       effectiveFrom: '21 Sep 2026',
       impact: 'Official policy confirmed by lead organiser.',
     };
 
     this.decisions.unshift(newDecision);
+
+    // Persist resolution to repository (Supabase)
+    repository.resolveConflict({
+      topic,
+      confirmedDecisionText,
+      confirmedBy,
+      supersedesDecisionId,
+    }).catch((err) => console.warn('Persist conflict resolution repo error:', err));
+
     return newDecision;
   }
 }

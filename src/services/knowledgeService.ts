@@ -13,15 +13,15 @@ import {
   ConflictInfo,
   SourceEvidenceItem,
 } from '../types';
-import { INITIAL_SOURCES, INITIAL_ACTIONS } from '../data/demoData';
 import { retrievalService } from './retrievalService';
 import { conflictService } from './conflictService';
 import { evidenceService } from './evidenceService';
 import { decisionService } from './decisionService';
+import { defaultKnowledgeRepository, KnowledgeRepository } from './knowledgeRepository';
 
 export class KnowledgeService {
-  private sources: Source[] = [...INITIAL_SOURCES];
-  private actions: ActionItem[] = [...INITIAL_ACTIONS];
+  private sources: Source[] = [];
+  private actions: ActionItem[] = [];
   private chunks: KnowledgeChunk[] = [];
 
   constructor(customSources?: Source[]) {
@@ -29,6 +29,22 @@ export class KnowledgeService {
       this.sources = customSources;
     }
     this.reindexChunks();
+  }
+
+  /**
+   * Asynchronously hydrate sources from the active KnowledgeRepository (Supabase or Local)
+   */
+  public async loadFromRepository(repository: KnowledgeRepository = defaultKnowledgeRepository): Promise<Source[]> {
+    try {
+      const repoSources = await repository.getSources();
+      if (repoSources && repoSources.length > 0) {
+        this.sources = repoSources;
+        this.reindexChunks();
+      }
+    } catch (err) {
+      console.warn('KnowledgeService loadFromRepository fallback:', err);
+    }
+    return this.sources;
   }
 
   /**
@@ -123,7 +139,7 @@ export class KnowledgeService {
     );
   }
 
-  public addOrUpdateSource(source: Source) {
+  public addOrUpdateSource(source: Source, repository: KnowledgeRepository = defaultKnowledgeRepository) {
     const existingIndex = this.sources.findIndex((s) => s.id === source.id);
     if (existingIndex >= 0) {
       this.sources[existingIndex] = { ...this.sources[existingIndex], ...source };
@@ -131,6 +147,47 @@ export class KnowledgeService {
       this.sources.unshift(source);
     }
     this.reindexChunks();
+
+    // Persist asynchronously through repository (Supabase)
+    repository.saveSource(source).catch((err) => {
+      console.warn('Failed to persist source to repository:', err);
+    });
+  }
+
+  /**
+   * Persist admin conflict resolution across decisions, sources, and knowledge repository
+   */
+  public async resolveAdminConflict(
+    params: {
+      topic: string;
+      confirmedDecisionText: string;
+      confirmedBy: string;
+      supersedesDecisionId?: string;
+      newSourceId?: string;
+    },
+    repository: KnowledgeRepository = defaultKnowledgeRepository
+  ): Promise<void> {
+    // 1. Persist to repository (Supabase & local cache)
+    await repository.resolveConflict(params);
+
+    // 2. Update decisionService
+    decisionService.resolveConflict(
+      params.topic,
+      params.confirmedDecisionText,
+      params.confirmedBy,
+      params.supersedesDecisionId,
+      repository
+    );
+
+    // 3. Mark 18 Sep preliminary source as superseded if prototype deadline conflict
+    if (params.topic.toLowerCase().includes('prototype') || params.topic.toLowerCase().includes('deadline')) {
+      this.sources = this.sources.map((s) => {
+        if (s.id === 'src-4') return { ...s, status: 'superseded' as const, supersededBy: 'src-2' };
+        if (s.id === 'src-2') return { ...s, status: 'current' as const, supersedes: 'src-4' };
+        return s;
+      });
+      this.reindexChunks();
+    }
   }
 
   /**

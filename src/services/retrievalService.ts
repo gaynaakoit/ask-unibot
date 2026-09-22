@@ -6,6 +6,7 @@
 
 import { KnowledgeChunk, Source, SourceEvidenceItem } from '../types';
 import { evidenceService } from './evidenceService';
+import { defaultKnowledgeRepository, KnowledgeRepository } from './knowledgeRepository';
 
 export interface RankedChunk {
   chunk: KnowledgeChunk;
@@ -186,6 +187,72 @@ export class RetrievalService {
     }
 
     return items;
+  }
+
+  /**
+   * Retrieve approved sources and ranked evidence candidates from repository (Supabase or local fallback)
+   */
+  public async retrieveFromRepository(
+    query: string,
+    repository: KnowledgeRepository = defaultKnowledgeRepository,
+    cachedSources?: Source[]
+  ): Promise<{
+    sources: Source[];
+    rankedChunks: RankedChunk[];
+    candidateEvidence: SourceEvidenceItem[];
+    topSources: Source[];
+  }> {
+    // 1. Fetch sources from repository (Supabase with local fallback)
+    let sources = cachedSources;
+    if (!sources || sources.length === 0) {
+      try {
+        sources = await repository.getSources();
+      } catch (err) {
+        console.warn('RetrievalService repository fetch fallback:', err);
+      }
+    }
+    const approvedSources = (sources || []).filter((s) => s.approved);
+    const sourcesMap = new Map<string, Source>();
+    approvedSources.forEach((s) => sourcesMap.set(s.id, s));
+
+    // 2. Build or collect chunks
+    const chunks: KnowledgeChunk[] = [];
+    approvedSources.forEach((src) => {
+      chunks.push({
+        id: `chk-${src.id}-main`,
+        sourceId: src.id,
+        title: src.title,
+        text: src.content,
+        tags: src.tags || [],
+        publishedAt: src.date,
+        effectiveFrom: src.effectiveFrom || src.date,
+        expiresAt: src.expiresAt,
+        trustLevel: src.trustLevel || 'official',
+        approved: src.approved,
+        metadata: {
+          status: src.status,
+          type: src.type,
+          author: src.author || src.publisher,
+          url: src.url,
+        },
+      });
+    });
+
+    // 3. Rank chunks against normalized query
+    const rankedChunks = this.rankChunks(chunks, sourcesMap, query);
+
+    // 4. Extract top evidence items
+    const candidateEvidence = this.toEvidenceItems(rankedChunks, 3);
+    const topSources = candidateEvidence
+      .map((ev) => sourcesMap.get(ev.id))
+      .filter((s): s is Source => Boolean(s));
+
+    return {
+      sources: approvedSources,
+      rankedChunks,
+      candidateEvidence,
+      topSources,
+    };
   }
 }
 

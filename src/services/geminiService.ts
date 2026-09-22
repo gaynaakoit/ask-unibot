@@ -7,11 +7,14 @@
 import { AiResponse, AnnouncementClarityCheck, Source, MeetingDecision } from '../types';
 import { defaultKnowledgeService } from './knowledgeService';
 import { decisionService } from './decisionService';
+import { defaultKnowledgeRepository } from './knowledgeRepository';
 
 export interface AskRequest {
   query: string;
   sources?: Source[];
   activeDecisions?: MeetingDecision[];
+  userId?: string;
+  participantName?: string;
 }
 
 export class GeminiService {
@@ -23,7 +26,9 @@ export class GeminiService {
   public async askUniBot(
     query: string,
     sources?: Source[],
-    activeDecisions?: MeetingDecision[]
+    activeDecisions?: MeetingDecision[],
+    userId: string = 'user-1',
+    participantName: string = 'Awa Diop'
   ): Promise<AiResponse> {
     // If dynamic sources were provided, ensure knowledgeService is kept synchronized
     if (sources && sources.length > 0) {
@@ -42,6 +47,8 @@ export class GeminiService {
           sources: sources || defaultKnowledgeService.getApprovedSources(),
           chunks,
           activeDecisions: decisions,
+          userId,
+          participantName,
         }),
       });
 
@@ -56,7 +63,32 @@ export class GeminiService {
     }
 
     // Fallback to local grounded knowledge retrieval engine (Phase 2 deterministic pipeline)
-    return defaultKnowledgeService.queryKnowledge(query);
+    const localAnswer = defaultKnowledgeService.queryKnowledge(query);
+
+    // Record question in repository
+    defaultKnowledgeRepository.recordQuestion({
+      id: `q-${Date.now()}`,
+      userId,
+      participantName,
+      question: query,
+      answer: localAnswer.answer,
+      confidence: localAnswer.confidence,
+      needsHuman: localAnswer.needsHuman,
+      nextStep: localAnswer.nextStep,
+      groundingMethod: 'grounded-knowledge-engine (client fallback)',
+      conflictDetected: localAnswer.conflict?.detected,
+      conflictResolved: localAnswer.conflict?.resolved,
+      conflictTopic: localAnswer.conflict?.topic,
+      freshnessStatus: localAnswer.freshness?.status,
+      explanationSimple: localAnswer.explanationSimple,
+      sources: (localAnswer.sources || []).map((s) => ({
+        id: s.id,
+        evidence: s.content?.slice(0, 150),
+        relevance: 1.0,
+      })),
+    }).catch((err) => console.warn('Record question local fallback error:', err));
+
+    return localAnswer;
   }
 
   /**
