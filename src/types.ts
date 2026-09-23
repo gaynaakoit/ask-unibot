@@ -140,7 +140,7 @@ export interface AiResponse {
   freshness?: FreshnessInfo;
   explanationSimple?: string;
   timestamp?: string;
-  groundingMethod?: 'gemini-3.8-flash' | 'deterministic-rag';
+  groundingMethod?: 'gemini-3.8-flash' | 'gemini-flash-latest' | 'deterministic-rag' | 'grounded-knowledge-engine' | string;
 }
 
 export type ActionStatus = 'pending' | 'in_progress' | 'completed' | 'overdue';
@@ -256,8 +256,10 @@ export interface HumanHandoverTicket {
   question: string;
   participantId?: string;
   participantContext?: string;
+  questionId?: string;
   detectedConflict?: string;
   conflictOrMissing?: string;
+  conflictSummary?: string;
   evidence?: string | SourceEvidenceItem[];
   sourcesChecked: string[];
   recommendedAdmin: string;
@@ -265,6 +267,8 @@ export interface HumanHandoverTicket {
   adminResponse?: string;
   resolutionNote?: string;
   status: 'open' | 'confirmed' | 'corrected' | 'superseded' | 'in_review' | 'resolved';
+  channel?: 'WEB' | 'WHATSAPP';
+  messageId?: string;
   createdAt?: string;
   timestamp: string;
   resolvedAt?: string;
@@ -388,3 +392,111 @@ export interface AppNotification {
   scheduledFor?: string | null;
   createdAt: string;
 }
+
+// ==============================================================================
+// WHATSAPP IDENTITY & WEBHOOK TYPES (Phase 4.1 + 4.2)
+// ==============================================================================
+
+export type WhatsAppIdentityStatus = 'PENDING' | 'VERIFIED' | 'BLOCKED';
+
+export interface WhatsAppIdentity {
+  id: string;
+  userId: string;
+  phoneNumber: string;
+  phoneNumberNormalized: string;
+  waUserId?: string;
+  displayName?: string;
+  status: WhatsAppIdentityStatus;
+  verifiedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type WhatsAppUserResolutionStatus = 'KNOWN_USER' | 'UNKNOWN_USER' | 'BLOCKED_USER';
+
+export interface WhatsAppUserResolution {
+  status: WhatsAppUserResolutionStatus;
+  identity?: WhatsAppIdentity;
+  user?: {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    track?: string;
+  };
+  phoneNumberNormalized: string;
+}
+
+export type WhatsAppMessageType =
+  | 'text'
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'document'
+  | 'sticker'
+  | 'location'
+  | 'interactive'
+  | 'button'
+  | 'unknown';
+
+export type WhatsAppMessageProcessingStatus =
+  | 'RECEIVED'
+  | 'PROCESSED'
+  | 'IGNORED'
+  | 'FAILED';
+
+export interface WhatsAppIncomingMessage {
+  messageId: string;
+  phoneNumber: string;
+  phoneNumberNormalized: string;
+  senderName?: string;
+  timestamp: string;
+  messageType: WhatsAppMessageType;
+  textBody?: string;
+  metadata?: Record<string, any>;
+  rawType?: string;
+}
+
+export interface WhatsAppStoredMessage {
+  id: string;
+  messageId: string;
+  phoneNumber: string;
+  phoneNumberNormalized: string;
+  userId?: string | null;
+  messageType: WhatsAppMessageType;
+  messageBody?: string;
+  receivedAt: string;
+  processedAt?: string | null;
+  status: WhatsAppMessageProcessingStatus;
+  metadata?: Record<string, any>;
+}
+
+// ==============================================================================
+// WHATSAPP OUTBOUND & ASK ENGINE TYPES (Phase 4.3)
+// ==============================================================================
+
+export interface SendWhatsAppTextMessageParams {
+  to: string;
+  text: string;
+  previewUrl?: boolean;
+}
+
+export type WhatsAppDeliveryStatus = 'SENT' | 'DRY_RUN' | 'NOT_CONFIGURED' | 'FAILED';
+
+export interface SendWhatsAppResponse {
+  success: boolean;
+  messageId?: string;
+  dryRun?: boolean;
+  status: WhatsAppDeliveryStatus;
+  error?: string;
+}
+
+export interface WhatsAppAskParams {
+  userId: string;
+  participantName: string;
+  phoneNumber: string;
+  messageId: string;
+  text: string;
+}
+
+

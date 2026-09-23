@@ -30,6 +30,9 @@ import {
   updateNotificationStatusInSupabase,
   getSupabaseServerClient,
 } from './src/services/supabaseServer.js';
+import { whatsappIdentityService } from './src/services/whatsappIdentityService.js';
+import { whatsappWebhookService } from './src/services/whatsappWebhookService.js';
+import { executeAskUniBotCore } from './src/services/askUniBotCore.js';
 
 dotenv.config();
 
@@ -122,8 +125,117 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     supabaseConfigured: isSupabaseServerConfigured(),
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    whatsappConfigured: Boolean(process.env.WHATSAPP_VERIFY_TOKEN && process.env.WHATSAPP_ACCESS_TOKEN),
+    whatsappDryRun: process.env.WHATSAPP_DRY_RUN === 'true' || !process.env.WHATSAPP_ACCESS_TOKEN,
     timestamp: new Date().toISOString(),
   });
+});
+
+// ==============================================================================
+// META WHATSAPP CLOUD API WEBHOOK (Phase 4.1 + 4.2)
+// ==============================================================================
+
+/**
+ * Webhook Verification (GET /webhooks/whatsapp)
+ * Meta verifies webhook endpoint by passing hub.mode, hub.verify_token, and hub.challenge.
+ */
+app.get('/webhooks/whatsapp', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'unipods_wa_verify_2026';
+
+  if (mode === 'subscribe' && token === expectedToken) {
+    console.info('[WhatsApp] Webhook verified successfully');
+    res.status(200).send(challenge);
+  } else {
+    console.warn('[WhatsApp] Webhook verification failed (token mismatch or invalid mode)');
+    res.sendStatus(403);
+  }
+});
+
+/**
+ * Webhook Event Receiver (POST /webhooks/whatsapp)
+ * Receives messages/events from Meta WhatsApp Cloud API.
+ * Rapidly responds 200 OK, deduplicates on message_id, resolves user identity,
+ * and persists message records without exposing secrets or private tokens.
+ */
+app.post('/webhooks/whatsapp', async (req, res) => {
+  try {
+    if (!req.body || typeof req.body !== 'object') {
+      res.status(400).json({ error: 'Invalid payload structure' });
+      return;
+    }
+
+    const result = await whatsappWebhookService.processIncomingEvent(req.body);
+    res.status(200).json({ status: 'ok', ...result });
+  } catch (err: any) {
+    console.warn('[WhatsApp] Webhook handling warning:', err?.message || err);
+    // Meta requires 200 OK to prevent message retry loops
+    res.status(200).json({ status: 'ok', error: 'Internal processing warning' });
+  }
+});
+
+/**
+ * WhatsApp Identity Management Endpoints
+ */
+app.get('/api/whatsapp/identity', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || (req.query.userId as string);
+    if (!userId) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    const identity = await whatsappIdentityService.findWhatsAppIdentityByUserId(userId);
+    res.json(identity || null);
+  } catch (err: any) {
+    console.warn('GET /api/whatsapp/identity error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to retrieve WhatsApp identity' });
+  }
+});
+
+app.post('/api/whatsapp/link', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || req.body?.userId;
+    const { phoneNumber, displayName } = req.body || {};
+
+    if (!userId || !phoneNumber) {
+      res.status(400).json({ error: 'userId and phoneNumber are required' });
+      return;
+    }
+
+    const identity = await whatsappIdentityService.linkWhatsAppNumber(
+      userId,
+      phoneNumber,
+      displayName || authUser?.name
+    );
+    res.json({ success: Boolean(identity), identity });
+  } catch (err: any) {
+    console.warn('POST /api/whatsapp/link error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to link WhatsApp number' });
+  }
+});
+
+app.delete('/api/whatsapp/link', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || (req.query.userId as string) || req.body?.userId;
+    const phoneNumber = (req.query.phoneNumber as string) || req.body?.phoneNumber;
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId is required' });
+      return;
+    }
+
+    const success = await whatsappIdentityService.unlinkWhatsAppNumber(userId, phoneNumber);
+    res.json({ success });
+  } catch (err: any) {
+    console.warn('DELETE /api/whatsapp/link error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to unlink WhatsApp number' });
+  }
 });
 
 // 1. SOURCES ENDPOINTS (Strictly Supabase)
@@ -482,8 +594,7 @@ app.get('/api/reminders', async (req, res) => {
 
 // 10. GROUNDED Q&A ENDPOINT
 app.post('/api/ask', async (req, res) => {
-  const { query, activeDecisions, userId, participantName } = req.body;
-  let { sources } = req.body;
+  const { query, activeDecisions, userId, participantName, sources } = req.body;
 
   if (!query || typeof query !== 'string') {
     res.status(400).json({ error: 'Query string is required' });
@@ -494,259 +605,20 @@ app.post('/api/ask', async (req, res) => {
   const resolvedUserId = authUser?.id || userId || '00000000-0000-4000-a000-000000000001';
   const resolvedParticipantName = authUser?.name || participantName || 'Participant';
 
-  // Always fetch fresh sources from Supabase if not supplied
-  if (!Array.isArray(sources) || sources.length === 0) {
-    try {
-      const dbSources = await fetchSourcesFromSupabase();
-      if (dbSources && dbSources.length > 0) {
-        sources = dbSources.filter((s) => s.approved);
-      }
-    } catch (e) {
-      console.warn('Could not fetch sources from Supabase for query:', e);
-    }
-  }
-
-  const ai = getGenAI();
-  if (!ai) {
-    if (Array.isArray(sources) && sources.length > 0) {
-      defaultKnowledgeService.setSources(sources);
-    }
-    const grounded = defaultKnowledgeService.queryKnowledge(query);
-
-    recordQuestionToSupabase({
-      id: `q-${Date.now()}`,
-      userId: resolvedUserId,
-      participantName: resolvedParticipantName,
-      question: query,
-      answer: grounded.answer,
-      confidence: grounded.confidence,
-      needsHuman: grounded.needsHuman,
-      nextStep: grounded.nextStep,
-      groundingMethod: 'grounded-knowledge-engine (supabase-synced)',
-      conflictDetected: grounded.conflict?.detected,
-      conflictResolved: grounded.conflict?.resolved,
-      conflictTopic: grounded.conflict?.topic,
-      freshnessStatus: grounded.freshness?.status,
-      explanationSimple: grounded.explanationSimple,
-      sources: (grounded.sources || []).map((s: any) => ({
-        id: s.id,
-        evidence: s.content?.slice(0, 150),
-        relevance: 1.0,
-      })),
-    }).catch((err) => console.warn('Background record question error:', err?.message || err));
-
-    res.json({
-      ...grounded,
-      groundingMethod: 'grounded-knowledge-engine',
-    });
-    return;
-  }
-
   try {
-    const formattedSources = Array.isArray(sources) && sources.length > 0
-      ? sources.map((s: any) => `[Source ID: ${s.id} | ${s.title} | Publisher: ${s.publisher || s.author} | Date: ${s.date} | Status: ${s.status} | Approved: ${s.approved} | Supersedes: ${s.supersedes || s.supersedesSourceId || 'None'}]\n${s.content}`).join('\n\n')
-      : 'No dynamic sources provided in Supabase.';
-
-    const formattedDecisions = Array.isArray(activeDecisions) && activeDecisions.length > 0
-      ? activeDecisions.map((d: any) => `- Decision [${d.id}]: ${d.title} (Status: ${d.status}, Date: ${d.date}, Supersedes: ${d.supersedesNote || 'None'})`).join('\n')
-      : 'No custom active decisions.';
-
-    const systemInstruction = `You are Ask UniBot, the trusted information assistant for the METI UniPods AI Innovation Programme 2026.
-Your responsibility is to help participants understand programme information using only approved evidence supplied in the context.
-
-Rules:
-1. Never invent programme information.
-2. Never rely on general model knowledge for programme-specific facts.
-3. Never guess deadlines, dates, links, requirements or policies.
-4. Every factual claim must be supported by supplied evidence from Supabase.
-5. Prefer the most recent effective official source.
-6. If a newer source supersedes an older source, use the newer source.
-7. If two approved sources conflict and no resolution exists, do not choose silently.
-8. Return NEEDS_ADMIN_CONFIRMATION when a conflict cannot be resolved.
-9. If no sufficient evidence exists, return NOT_FOUND.
-10. Clearly distinguish confirmed information from uncertainty.
-11. Keep answers concise and actionable.
-12. Always provide the evidence source.`;
-
-    const prompt = `APPROVED SUPABASE SOURCES:
-${formattedSources}
-
-OFFICIAL ACTIVE DECISIONS:
-${formattedDecisions}
-
-USER QUESTION:
-"${query}"`;
-
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest'];
-    let parsed: any = null;
-    let chosenModel = 'gemini-3.8-flash';
-
-    for (const model of modelsToTry) {
-      try {
-        const response = await withTimeout(
-          ai.models.generateContent({
-            model,
-            contents: prompt,
-            config: {
-              systemInstruction,
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  answer: { type: Type.STRING },
-                  confidence: {
-                    type: Type.STRING,
-                    enum: ['CONFIRMED', 'NEEDS_ADMIN_CONFIRMATION', 'NOT_FOUND'],
-                  },
-                  sources: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        id: { type: Type.STRING },
-                        title: { type: Type.STRING },
-                        publisher: { type: Type.STRING },
-                        url: { type: Type.STRING },
-                        relevance: { type: Type.NUMBER },
-                        evidence: { type: Type.STRING },
-                      },
-                      required: ['id', 'title', 'evidence'],
-                    },
-                  },
-                  nextStep: { type: Type.STRING, nullable: true },
-                  needsHuman: { type: Type.BOOLEAN },
-                  conflict: {
-                    type: Type.OBJECT,
-                    nullable: true,
-                    properties: {
-                      detected: { type: Type.BOOLEAN },
-                      resolved: { type: Type.BOOLEAN },
-                      topic: { type: Type.STRING },
-                      summary: { type: Type.STRING },
-                    },
-                  },
-                  freshness: {
-                    type: Type.OBJECT,
-                    properties: {
-                      status: {
-                        type: Type.STRING,
-                        enum: ['current', 'aging', 'expired', 'unknown'],
-                      },
-                      reason: { type: Type.STRING },
-                    },
-                    required: ['status', 'reason'],
-                  },
-                  explanationSimple: { type: Type.STRING },
-                },
-                required: ['answer', 'confidence', 'sources', 'needsHuman', 'freshness'],
-              },
-            },
-          }),
-          4000,
-          `Timeout calling ${model}`
-        );
-
-        const text = response.text?.trim();
-        if (text) {
-          parsed = JSON.parse(text);
-          chosenModel = model;
-          break;
-        }
-      } catch (modelErr: any) {
-        console.warn(`Model ${model} unavailable (${modelErr?.status || modelErr?.code || 'busy'}), trying next...`);
-      }
-    }
-
-    if (parsed && parsed.answer) {
-      const enrichedSources = Array.isArray(parsed.sources) && Array.isArray(sources)
-        ? parsed.sources.map((ps: any) => {
-            const original = sources.find((s: any) => s.id === ps.id);
-            return original ? { ...original, evidence: ps.evidence } : ps;
-          })
-        : (sources?.slice(0, 2) || []);
-
-      const finalResponse = {
-        answer: parsed.answer,
-        confidence: parsed.confidence,
-        sources: enrichedSources,
-        evidenceItems: parsed.sources || [],
-        nextStep: parsed.nextStep || null,
-        needsHuman: parsed.needsHuman || parsed.confidence === 'NEEDS_ADMIN_CONFIRMATION' || parsed.confidence === 'NOT_FOUND',
-        conflict: parsed.conflict || null,
-        conflictSummary: parsed.conflict?.summary || undefined,
-        freshness: parsed.freshness,
-        explanationSimple: parsed.explanationSimple,
-        groundingMethod: chosenModel,
-        timestamp: new Date().toISOString(),
-      };
-
-      recordQuestionToSupabase({
-        id: `q-${Date.now()}`,
-        userId: resolvedUserId,
-        participantName: resolvedParticipantName,
-        question: query,
-        answer: finalResponse.answer,
-        confidence: finalResponse.confidence,
-        needsHuman: finalResponse.needsHuman,
-        nextStep: finalResponse.nextStep,
-        groundingMethod: chosenModel,
-        conflictDetected: finalResponse.conflict?.detected,
-        conflictResolved: finalResponse.conflict?.resolved,
-        conflictTopic: finalResponse.conflict?.topic,
-        freshnessStatus: finalResponse.freshness?.status,
-        explanationSimple: finalResponse.explanationSimple,
-        sources: (parsed.sources || []).map((s: any) => ({
-          id: s.id,
-          evidence: s.evidence,
-          relevance: s.relevance || 1.0,
-        })),
-      }).catch((err) => console.warn('Background record question error:', err?.message || err));
-
-      return res.json(finalResponse);
-    }
-
-    // High demand fallback using local engine seeded with Supabase sources
-    if (Array.isArray(sources) && sources.length > 0) {
-      defaultKnowledgeService.setSources(sources);
-    }
-    const grounded = defaultKnowledgeService.queryKnowledge(query);
-
-    recordQuestionToSupabase({
-      id: `q-${Date.now()}`,
+    const finalResponse = await executeAskUniBotCore({
+      query,
       userId: resolvedUserId,
       participantName: resolvedParticipantName,
-      question: query,
-      answer: grounded.answer,
-      confidence: grounded.confidence,
-      needsHuman: grounded.needsHuman,
-      nextStep: grounded.nextStep,
-      groundingMethod: 'grounded-knowledge-engine (demand spike)',
-      conflictDetected: grounded.conflict?.detected,
-      conflictResolved: grounded.conflict?.resolved,
-      conflictTopic: grounded.conflict?.topic,
-      freshnessStatus: grounded.freshness?.status,
-      explanationSimple: grounded.explanationSimple,
-      sources: (grounded.sources || []).map((s: any) => ({
-        id: s.id,
-        evidence: s.content?.slice(0, 150),
-        relevance: 1.0,
-      })),
-    }).catch((err) => console.warn('Background record question error:', err?.message || err));
-
-    return res.json({
-      ...grounded,
-      groundingMethod: 'grounded-knowledge-engine (demand spike)',
+      channel: 'WEB',
+      sources,
+      activeDecisions,
     });
+
+    res.json(finalResponse);
   } catch (error: any) {
-    if (Array.isArray(sources) && sources.length > 0) {
-      defaultKnowledgeService.setSources(sources);
-    }
-    const grounded = defaultKnowledgeService.queryKnowledge(query);
-
-    res.json({
-      ...grounded,
-      groundingMethod: 'grounded-knowledge-engine',
-    });
+    console.warn('/api/ask error:', error?.message || error);
+    res.status(500).json({ error: 'Failed to process question' });
   }
 });
 

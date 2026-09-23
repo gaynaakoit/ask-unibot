@@ -1,0 +1,46 @@
+/**
+ * WhatsApp Ask Adapter Service (Phase 4.3)
+ * METI UniPods AI Innovation Programme 2026
+ *
+ * Responsibilities:
+ * WhatsApp message
+ *       ↓
+ * resolved Supabase user
+ *       ↓
+ * existing Ask UniBot Core
+ *       ↓
+ * structured response
+ *
+ * NOTE: As per Phase 4.3 guidelines, this is strictly an adapter.
+ * It contains zero custom RAG logic and delegates directly to executeAskUniBotCore.
+ */
+
+import { AiResponse } from '../types.js';
+import { executeAskUniBotCore } from './askUniBotCore.js';
+
+export interface ProcessWhatsAppQuestionParams {
+  userId: string;
+  participantName: string;
+  phoneNumber: string;
+  messageId: string;
+  text: string;
+}
+
+export class WhatsAppAskService {
+  /**
+   * Adapts and routes an authenticated WhatsApp user query into the unified Ask UniBot engine.
+   */
+  public async processWhatsAppQuestion(params: ProcessWhatsAppQuestionParams): Promise<AiResponse> {
+    const { userId, participantName, messageId, text } = params;
+
+    return executeAskUniBotCore({
+      query: text,
+      userId,
+      participantName,
+      channel: 'WHATSAPP',
+      messageId,
+    });
+  }
+}
+
+export const whatsappAskService = new WhatsAppAskService();

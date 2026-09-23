@@ -488,14 +488,16 @@ export async function saveHandoverTicketToSupabase(ticket: HumanHandoverTicket):
   if (!client) return false;
 
   try {
-    const row = {
+    const row: any = {
       id: ticket.id,
       participant_id: ticket.participantId || 'user-1',
       participant_context: ticket.participantContext || 'UniPods Participant',
       question: ticket.question,
+      question_id: ticket.questionId || null,
       status: ticket.status || 'open',
       conflict_or_missing: ticket.conflictOrMissing || null,
       detected_conflict: ticket.detectedConflict || null,
+      conflict_summary: ticket.conflictSummary || null,
       evidence: ticket.evidence || null,
       sources_checked: ticket.sourcesChecked || [],
       recommended_admin: ticket.recommendedAdmin || 'Dr. Aminata Touré (Lead Facilitator)',
@@ -505,7 +507,19 @@ export async function saveHandoverTicketToSupabase(ticket: HumanHandoverTicket):
       created_at: ticket.createdAt || new Date().toISOString(),
     };
 
-    const { error } = await client.from('handover_tickets').upsert(row, { onConflict: 'id' });
+    if (ticket.channel) row.channel = ticket.channel;
+    if (ticket.messageId) row.message_id = ticket.messageId;
+
+    let { error } = await client.from('handover_tickets').upsert(row, { onConflict: 'id' });
+    if (error && error.message && error.message.includes('column') && (ticket.channel || ticket.messageId || ticket.questionId)) {
+      delete row.channel;
+      delete row.message_id;
+      delete row.question_id;
+      row.participant_context = `${ticket.participantContext || 'Participant'} [${ticket.channel || 'WEB'}${ticket.messageId ? ':' + ticket.messageId : ''}]`;
+      const retry = await client.from('handover_tickets').upsert(row, { onConflict: 'id' });
+      error = retry.error;
+    }
+
     if (error) {
       handleSupabaseError('handover_tickets', 'saveTicket', error);
       return false;
@@ -638,12 +652,14 @@ export async function recordQuestionToSupabase(params: {
   freshnessStatus?: string;
   explanationSimple?: string;
   sources?: Array<{ id: string; evidence?: string; relevance?: number }>;
+  channel?: 'WEB' | 'WHATSAPP';
+  messageId?: string;
 }): Promise<boolean> {
   const client = getSupabaseServerClient();
   if (!client) return false;
 
   try {
-    const questionRow = {
+    const questionRow: any = {
       id: params.id,
       user_id: params.userId || '00000000-0000-4000-a000-000000000001',
       participant_name: params.participantName || 'Participant',
@@ -661,7 +677,18 @@ export async function recordQuestionToSupabase(params: {
       created_at: new Date().toISOString(),
     };
 
-    const { error: qError } = await client.from('questions').insert(questionRow);
+    if (params.channel) questionRow.channel = params.channel;
+    if (params.messageId) questionRow.message_id = params.messageId;
+
+    let { error: qError } = await client.from('questions').insert(questionRow);
+    if (qError && qError.message && qError.message.includes('column') && (params.channel || params.messageId)) {
+      delete questionRow.channel;
+      delete questionRow.message_id;
+      questionRow.grounding_method = `${params.groundingMethod} [${params.channel || 'WEB'}${params.messageId ? ':' + params.messageId : ''}]`;
+      const retry = await client.from('questions').insert(questionRow);
+      qError = retry.error;
+    }
+
     if (qError) {
       handleSupabaseError('questions', 'recordQuestion', qError);
       return false;
