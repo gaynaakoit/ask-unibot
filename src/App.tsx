@@ -3,7 +3,7 @@
  * Trusted group memory and personal participation companion
  * for the METI UniPods AI Innovation Programme.
  *
- * Exclusively driven by live Supabase PostgreSQL data.
+ * Exclusively driven by live Supabase PostgreSQL data & Supabase Auth.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -21,11 +21,13 @@ import {
   Announcement,
 } from './types';
 
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { MobileNav } from './components/layout/MobileNav';
 import { SourceModal } from './components/common/SourceModal';
 import { HumanHandoverModal } from './components/common/HumanHandoverModal';
+import { AuthModal } from './components/common/AuthModal';
 
 import { DashboardView } from './components/views/DashboardView';
 import { AskUniBotView } from './components/views/AskUniBotView';
@@ -106,10 +108,13 @@ const FALLBACK_ANNOUNCEMENT: Announcement = {
   category: 'schedule',
 };
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { user, profile, isAdmin, signInAsDemo, signOut, updateProfile } = useAuth();
+
   // Navigation & Role Mode State
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [isAdminMode, setIsAdminMode] = useState<boolean>(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   // Application Data States (Strictly hydrated from Supabase)
   const [sources, setSources] = useState<Source[]>([]);
@@ -119,8 +124,24 @@ export const App: React.FC = () => {
   const [handoverTickets, setHandoverTickets] = useState<HumanHandoverTicket[]>([]);
   const [recurringQuestions, setRecurringQuestions] = useState<RecurringQuestion[]>([]);
   const [poll, setPoll] = useState<Poll>(DEFAULT_POLL);
-  const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
   const [decisionTimeline, setDecisionTimeline] = useState<DecisionTimelineItem[]>([]);
+
+  // Modals & Cross-component state
+  const [selectedSourceModal, setSelectedSourceModal] = useState<Source | null>(null);
+  const [handoverModalOpen, setHandoverModalOpen] = useState(false);
+  const [handoverData, setHandoverData] = useState<{
+    question: string;
+    sourcesChecked: string[];
+    conflict: string;
+  }>({ question: '', sourcesChecked: [], conflict: '' });
+  const [prefilledQuery, setPrefilledQuery] = useState('');
+
+  // Synchronize admin mode if auth role is admin
+  useEffect(() => {
+    if (isAdmin && !isAdminMode) {
+      setIsAdminMode(true);
+    }
+  }, [isAdmin]);
 
   // Hydrate persistent state from Supabase
   useEffect(() => {
@@ -155,14 +176,7 @@ export const App: React.FC = () => {
       }
     }).catch((err) => console.warn('Meetings hydration error:', err));
 
-    // 4. Actions
-    defaultKnowledgeRepository.getActions().then((repoActions) => {
-      if (repoActions && repoActions.length > 0) {
-        setActions(repoActions);
-      }
-    }).catch((err) => console.warn('Actions hydration error:', err));
-
-    // 5. Handover Tickets
+    // 4. Handover Tickets
     defaultKnowledgeRepository.getHandoverTickets().then((repoTickets) => {
       if (repoTickets && repoTickets.length > 0) {
         setHandoverTickets(repoTickets);
@@ -170,75 +184,59 @@ export const App: React.FC = () => {
       }
     }).catch((err) => console.warn('Handover tickets hydration error:', err));
 
-    // 6. Confusion Alerts
+    // 5. Confusion Alerts
     defaultKnowledgeRepository.getConfusionAlerts().then((repoAlerts) => {
       if (repoAlerts && repoAlerts.length > 0) {
         setConfusionAlerts(repoAlerts);
       }
     }).catch((err) => console.warn('Confusion alerts hydration error:', err));
 
-    // 7. Recurring Questions
+    // 6. Recurring Questions
     defaultKnowledgeRepository.getRecurringQuestions().then((repoQuestions) => {
       if (repoQuestions && repoQuestions.length > 0) {
         setRecurringQuestions(repoQuestions);
       }
     }).catch((err) => console.warn('Recurring questions hydration error:', err));
-
-    // 8. User Profile
-    defaultKnowledgeRepository.getUserProfile().then((profile) => {
-      if (profile) {
-        setUser(profile);
-      }
-    }).catch((err) => console.warn('User profile hydration error:', err));
-
-    decisionService.loadFromRepository().catch((err) => console.warn('Decision service hydration error:', err));
   }, []);
 
-  // Compute latest announcement dynamically from Supabase sources
-  const latestAnnouncement: Announcement | undefined = sources.length > 0
+  // Hydrate actions specific to active user
+  useEffect(() => {
+    defaultKnowledgeRepository.getActions(user?.id).then((repoActions) => {
+      if (repoActions && repoActions.length > 0) {
+        setActions(repoActions);
+      }
+    }).catch((err) => console.warn('Actions hydration error:', err));
+  }, [user?.id]);
+
+  // Derive latest official announcement from approved sources
+  const latestAnnouncementSource = sources.find(
+    (s) => s.approved && (s.type === 'organiser_update' || s.type === 'official_announcement' || s.type === 'programme_document')
+  );
+
+  const latestAnnouncement: Announcement = latestAnnouncementSource
     ? {
-        id: sources[0].id,
-        title: sources[0].title,
-        date: sources[0].date,
-        summary: sources[0].summary || sources[0].content.slice(0, 150) + '...',
-        content: sources[0].content,
+        id: `ann-${latestAnnouncementSource.id}`,
+        title: latestAnnouncementSource.title,
+        date: latestAnnouncementSource.date,
+        summary: latestAnnouncementSource.content.slice(0, 180) + '...',
+        content: latestAnnouncementSource.content,
         priority: 'high',
-        sourceTitle: sources[0].title,
-        sourceId: sources[0].id,
-        requiredAction: 'Review official notification and sync with team lead',
+        sourceTitle: latestAnnouncementSource.publisher || latestAnnouncementSource.author || 'UniPods Directorate',
+        sourceId: latestAnnouncementSource.id,
         category: 'schedule',
       }
-    : undefined;
+    : FALLBACK_ANNOUNCEMENT;
 
-  // Deep-link / Chat trigger query
-  const [prefilledQuery, setPrefilledQuery] = useState<string>('');
-
-  // Modals
-  const [selectedSourceModal, setSelectedSourceModal] = useState<Source | null>(null);
-  const [handoverModalOpen, setHandoverModalOpen] = useState(false);
-  const [handoverData, setHandoverData] = useState<{
-    question: string;
-    sourcesChecked: string[];
-    conflict: string;
-  }>({
-    question: '',
-    sourcesChecked: [],
-    conflict: '',
-  });
-
-  // Action handlers connected to Supabase
-  const handleToggleAction = (id: string) => {
+  // Handlers
+  const handleToggleAction = (actionId: string) => {
     setActions((prev) =>
-      prev.map((act) => {
-        if (act.id === id) {
-          const nextStatus = act.status === 'completed' ? 'pending' : 'completed';
-          defaultKnowledgeRepository.updateActionStatus(id, nextStatus).catch(console.warn);
-          return {
-            ...act,
-            status: nextStatus,
-          };
+      prev.map((a) => {
+        if (a.id === actionId) {
+          const nextStatus = a.status === 'completed' ? 'pending' : 'completed';
+          defaultKnowledgeRepository.updateActionStatus(actionId, nextStatus).catch(console.warn);
+          return { ...a, status: nextStatus };
         }
-        return act;
+        return a;
       })
     );
   };
@@ -246,7 +244,10 @@ export const App: React.FC = () => {
   const handleVotePoll = (pollId: string, optionId: string) => {
     setPoll((prev) => ({
       ...prev,
-      userVotedId: optionId,
+      options: prev.options.map((opt) =>
+        opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt
+      ),
+      totalResponses: prev.totalResponses + 1,
     }));
   };
 
@@ -265,11 +266,13 @@ export const App: React.FC = () => {
     setHandoverModalOpen(true);
   };
 
+  const activeUserProfile: UserProfile = profile || DEFAULT_USER;
+
   const handleCreateHandoverTicket = (ticketData: Partial<HumanHandoverTicket>) => {
     const newTicket: HumanHandoverTicket = {
       id: `ticket-${Date.now()}`,
       question: ticketData.question || handoverData.question,
-      participantContext: `${user.name} (${user.cohort})`,
+      participantContext: `${activeUserProfile.name} (${activeUserProfile.cohort})`,
       recommendedAdmin: ticketData.recommendedAdmin || 'Dr. Aminata Touré (Lead Facilitator)',
       sourcesChecked: ticketData.sourcesChecked || handoverData.sourcesChecked,
       conflictOrMissing: ticketData.conflictOrMissing || handoverData.conflict,
@@ -301,7 +304,6 @@ export const App: React.FC = () => {
       adminResponse: resolution,
     }).catch(console.warn);
 
-    // Create a new verified source so Ask UniBot immediately grounds future queries on this resolution
     const ticket = handoverTickets.find((t) => t.id === ticketId);
     const newSource: Source = {
       id: `src-resolution-${Date.now()}`,
@@ -327,7 +329,6 @@ export const App: React.FC = () => {
       'Dr. Aminata Touré (Lead Facilitator)'
     );
 
-    // Add decision timeline entry
     const newTimelineItem: DecisionTimelineItem = {
       id: `dt-res-${Date.now()}`,
       date: '21 Sep 2026',
@@ -339,64 +340,37 @@ export const App: React.FC = () => {
     setDecisionTimeline((prev) => [newTimelineItem, ...prev]);
   };
 
-  // Resolution of Conflicting Announcements (Persisted to Supabase)
   const handleResolveConfusion = (alert: ConfusionAlert) => {
-    // 1. Mark alert as resolved
     setConfusionAlerts((prev) =>
       prev.map((a) =>
         a.id === alert.id
           ? {
               ...a,
               status: 'resolved' as const,
+              resolvedBy: 'Dr. Aminata Touré (Lead Facilitator)',
               resolutionNote:
-                'Confirmed Tuesday, 29 September 2026 at 23:59 WAT as the official locked deadline. Marked 18 Sep preliminary notice as superseded.',
+                'Confirmed in 21 Sep Live Q&A: Prototype submission deadline is Tuesday, 29 September 2026 at 23:59 WAT.',
             }
           : a
       )
     );
 
-    // 2. Update Sources knowledge base: mark 18 Sep as superseded
-    const updatedSources = sources.map((s) => {
-      if (s.id === 'src-4') {
-        return { ...s, status: 'superseded' as const, supersededBy: 'src-2' };
-      }
-      if (s.id === 'src-2') {
-        return { ...s, status: 'current' as const, supersedes: 'src-4' };
-      }
-      return s;
-    });
-
-    setSources(updatedSources);
-    defaultKnowledgeService.setSources(updatedSources);
-
-    // Persist resolution to Supabase database
-    defaultKnowledgeService.resolveAdminConflict({
-      topic: 'Prototype Submission Deadline',
-      confirmedDecisionText:
-        'Official concept submission locked to Tuesday, 29 September 2026 at 23:59 WAT by Eng. Kwame Mensah and Dr. Aminata Touré.',
-      confirmedBy: 'Eng. Kwame Mensah and Dr. Aminata Touré',
-      supersedesDecisionId: 'dec-proto-27',
-      newSourceId: 'src-2',
-    });
-
-    // 3. Update recurring questions status
-    setRecurringQuestions((prev) =>
-      prev.map((q) =>
-        q.question.toLowerCase().includes('deadline')
-          ? {
-              ...q,
-              status: 'answered' as const,
-              suggestedAnswer:
-                'Official deadline is Tuesday, 29 September 2026 at 23:59 WAT. Preliminary 27 Sep date is superseded.',
-            }
-          : q
-      )
+    decisionService.resolveConflict(
+      'Prototype Deadline Discrepancy',
+      'Confirmed: Milestone 2 prototype submission deadline is Tuesday, 29 September 2026 at 23:59 WAT (as stated in official syllabus Section 4.2).',
+      'Dr. Aminata Touré (Lead Facilitator)'
     );
 
-    // 4. Update Decision Timeline
+    defaultKnowledgeRepository.resolveConflict({
+      topic: 'Prototype Deadline Discrepancy',
+      confirmedDecisionText:
+        'Confirmed: Milestone 2 prototype submission deadline is Tuesday, 29 September 2026 at 23:59 WAT.',
+      confirmedBy: 'Dr. Aminata Touré (Lead Facilitator)',
+    }).catch(console.warn);
+
     const conflictResolutionTimeline: DecisionTimelineItem = {
-      id: `dt-conflict-${Date.now()}`,
-      date: '21 Sep 2026 (Now)',
+      id: `dt-resolved-${Date.now()}`,
+      date: '21 Sep 2026',
       title: 'Prototype Submission Deadline Locked',
       description:
         'Official concept submission locked to Tuesday, 29 September 2026 at 23:59 WAT by Eng. Kwame Mensah and Dr. Aminata Touré.',
@@ -406,7 +380,6 @@ export const App: React.FC = () => {
     setDecisionTimeline((prev) => [conflictResolutionTimeline, ...prev]);
   };
 
-  // Source Management Actions
   const handleToggleSourceApproval = (sourceId: string) => {
     const updated = sources.map((s) => (s.id === sourceId ? { ...s, approved: !s.approved } : s));
     setSources(updated);
@@ -448,6 +421,10 @@ export const App: React.FC = () => {
         onToggleRole={handleToggleRole}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
+        userProfile={activeUserProfile}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onSignOut={signOut}
+        onSwitchAccount={signInAsDemo}
       />
 
       {/* Main Layout Area */}
@@ -467,6 +444,7 @@ export const App: React.FC = () => {
           {/* PARTICIPANT VIEWS */}
           {activeTab === 'dashboard' && (
             <DashboardView
+              userName={activeUserProfile.name}
               onNavigate={setActiveTab}
               onAskQuestion={(q) => {
                 setPrefilledQuery(q);
@@ -487,6 +465,8 @@ export const App: React.FC = () => {
             <AskUniBotView
               initialQuery={prefilledQuery}
               allSources={sources}
+              userName={activeUserProfile.name}
+              userId={user?.id}
               onOpenHandoverModal={handleOpenHandoverModal}
               onViewSourceModal={setSelectedSourceModal}
               onNavigateToActions={() => setActiveTab('actions')}
@@ -540,8 +520,8 @@ export const App: React.FC = () => {
 
           {activeTab === 'profile' && (
             <ProfileView
-              user={user}
-              onUpdateUser={(updated: Partial<UserProfile>) => setUser((prev: UserProfile) => ({ ...prev, ...updated }))}
+              user={activeUserProfile}
+              onUpdateUser={updateProfile}
             />
           )}
 
@@ -619,9 +599,22 @@ export const App: React.FC = () => {
         initialQuestion={handoverData.question}
         sourcesChecked={handoverData.sourcesChecked}
         conflictOrMissing={handoverData.conflict}
-        participantName={`${user.name} (${user.cohort})`}
+        participantName={`${activeUserProfile.name} (${activeUserProfile.cohort})`}
+      />
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
       />
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

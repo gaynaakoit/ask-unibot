@@ -22,6 +22,7 @@ import { ActionCard } from '../common/ActionCard';
 import { EvidenceCard } from '../common/EvidenceCard';
 
 interface DashboardViewProps {
+  userName?: string;
   onNavigate: (tab: ActiveTab) => void;
   onAskQuestion: (q: string) => void;
   nextMeeting: Meeting;
@@ -35,6 +36,7 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
+  userName = 'Participant',
   onNavigate,
   onAskQuestion,
   nextMeeting,
@@ -78,7 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 text-white">
-            Good morning, Awa Diop
+            Good morning, {userName}
           </h1>
           <p className="text-sm text-blue-100/90 font-normal max-w-xl">
             Stay informed. Know what matters. Take the next step.

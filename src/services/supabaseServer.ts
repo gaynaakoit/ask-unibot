@@ -19,6 +19,7 @@ import {
   ConfusionAlert,
   Recap,
   EventReminder,
+  AppNotification,
 } from '../types.js';
 
 let serverClient: SupabaseClient | null = null;
@@ -551,20 +552,26 @@ export async function updateHandoverTicketInSupabase(
 /**
  * 6. USER PROFILE: Fetch user profile from Supabase
  */
-export async function fetchUserProfileFromSupabase(userId = 'user-1'): Promise<UserProfile | null> {
+export async function fetchUserProfileFromSupabase(userId = '00000000-0000-4000-a000-000000000001'): Promise<UserProfile | null> {
   const client = getSupabaseServerClient();
   if (!client) return null;
 
   try {
-    const { data, error } = await client
+    const lookupId = userId === 'user-1' ? '00000000-0000-4000-a000-000000000001' : userId;
+
+    let { data, error } = await client
       .from('users')
       .select('*')
-      .eq('id', userId)
-      .single();
+      .eq('id', lookupId)
+      .maybeSingle();
 
-    if (error) {
-      handleSupabaseError('users', 'fetchProfile', error);
-      return null;
+    if (!data && lookupId.includes('@')) {
+      const byEmail = await client
+        .from('users')
+        .select('*')
+        .eq('email', lookupId)
+        .maybeSingle();
+      data = byEmail.data;
     }
 
     if (!data) return null;
@@ -586,6 +593,29 @@ export async function fetchUserProfileFromSupabase(userId = 'user-1'): Promise<U
   } catch (err: any) {
     handleSupabaseError('users', 'connectUsers', err);
     return null;
+  }
+}
+
+export async function updateUserProfileInSupabase(
+  userId: string,
+  updates: Partial<UserProfile>
+): Promise<boolean> {
+  const client = getSupabaseServerClient();
+  if (!client) return false;
+  try {
+    const rowUpdates: any = { updated_at: new Date().toISOString() };
+    if (updates.name) rowUpdates.name = updates.name;
+    if (updates.track) rowUpdates.track = updates.track;
+
+    const { error } = await client.from('users').update(rowUpdates).eq('id', userId);
+    if (error) {
+      handleSupabaseError('users', 'updateProfile', error);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    handleSupabaseError('users', 'updateProfileException', err);
+    return false;
   }
 }
 
@@ -615,8 +645,8 @@ export async function recordQuestionToSupabase(params: {
   try {
     const questionRow = {
       id: params.id,
-      user_id: params.userId || 'user-1',
-      participant_name: params.participantName || 'Awa Diop',
+      user_id: params.userId || '00000000-0000-4000-a000-000000000001',
+      participant_name: params.participantName || 'Participant',
       question: params.question,
       answer: params.answer,
       confidence: params.confidence,
@@ -655,16 +685,29 @@ export async function recordQuestionToSupabase(params: {
   }
 }
 
-export async function fetchQuestionHistoryFromSupabase(limit = 20): Promise<any[]> {
+export async function fetchQuestionHistoryFromSupabase(
+  userIdOrLimit?: string | number,
+  limit = 20,
+  isAdmin = false
+): Promise<any[]> {
   const client = getSupabaseServerClient();
   if (!client) return [];
 
+  const actualLimit = typeof userIdOrLimit === 'number' ? userIdOrLimit : limit;
+  const actualUserId = typeof userIdOrLimit === 'string' ? userIdOrLimit : undefined;
+
   try {
-    const { data, error } = await client
+    let query = client
       .from('questions')
       .select('*, question_sources(*)')
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .limit(actualLimit);
+
+    if (!isAdmin && actualUserId) {
+      query = query.or(`user_id.eq.${actualUserId},user_id.is.null`);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       handleSupabaseError('questions', 'fetchHistory', error);
@@ -896,4 +939,49 @@ export async function fetchRemindersFromSupabase(): Promise<EventReminder[]> {
   }
 
   return reminders;
+}
+
+export async function fetchNotificationsFromSupabase(userId?: string): Promise<AppNotification[]> {
+  const client = getSupabaseServerClient();
+  if (!client) return [];
+  try {
+    let query = client.from('notifications').select('*').order('created_at', { ascending: false });
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+    const { data, error } = await query;
+    if (error) {
+      handleSupabaseError('notifications', 'fetchNotificationsFromSupabase', error);
+      return [];
+    }
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      type: row.type,
+      title: row.title,
+      message: row.message,
+      read: row.read,
+      scheduledFor: row.scheduled_for,
+      createdAt: row.created_at,
+    }));
+  } catch (err: any) {
+    console.warn('fetchNotificationsFromSupabase exception:', err?.message || err);
+    return [];
+  }
+}
+
+export async function updateNotificationStatusInSupabase(id: string, read: boolean): Promise<boolean> {
+  const client = getSupabaseServerClient();
+  if (!client) return false;
+  try {
+    const { error } = await client.from('notifications').update({ read }).eq('id', id);
+    if (error) {
+      handleSupabaseError('notifications', 'updateNotificationStatusInSupabase', error);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    console.warn('updateNotificationStatusInSupabase exception:', err?.message || err);
+    return false;
+  }
 }

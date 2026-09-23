@@ -18,6 +18,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdateUser }) 
   const [smartSilence, setSmartSilence] = useState(user.preferences.smartSilenceActive);
   const [digestFreq, setDigestFreq] = useState(user.preferences.digestFrequency);
 
+  const initials = user.name
+    ? user.name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'UP';
+
   const handleSave = () => {
     onUpdateUser({
       preferences: {
@@ -49,7 +58,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdateUser }) 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-blue-900 text-white font-bold text-xl flex items-center justify-center shadow-xs">
-            AD
+            {initials}
           </div>
           <div>
             <h3 className="text-base font-bold text-slate-900">{user.name}</h3>

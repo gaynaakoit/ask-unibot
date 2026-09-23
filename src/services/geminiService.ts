@@ -8,6 +8,7 @@ import { AiResponse, AnnouncementClarityCheck, Source, MeetingDecision } from '.
 import { defaultKnowledgeService } from './knowledgeService';
 import { decisionService } from './decisionService';
 import { defaultKnowledgeRepository } from './knowledgeRepository';
+import { getAuthHeaders } from './currentUserService';
 
 export interface AskRequest {
   query: string;
@@ -27,8 +28,8 @@ export class GeminiService {
     query: string,
     sources?: Source[],
     activeDecisions?: MeetingDecision[],
-    userId: string = 'user-1',
-    participantName: string = 'Awa Diop'
+    userId?: string,
+    participantName?: string
   ): Promise<AiResponse> {
     // If dynamic sources were provided, ensure knowledgeService is kept synchronized
     if (sources && sources.length > 0) {
@@ -38,10 +39,14 @@ export class GeminiService {
     try {
       const chunks = defaultKnowledgeService.getRelevantChunks(query, 6);
       const decisions = activeDecisions || decisionService.getActiveDecisions();
+      const authHeaders = await getAuthHeaders();
 
       const res = await fetch('/api/ask', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
         body: JSON.stringify({
           query,
           sources: sources || defaultKnowledgeService.getApprovedSources(),

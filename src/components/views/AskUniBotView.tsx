@@ -22,6 +22,7 @@ import { ConfidenceState, Source, AiResponse, ActionItem } from '../../types';
 import { ConfidenceBadge } from '../common/ConfidenceBadge';
 import { EvidenceCard } from '../common/EvidenceCard';
 import { geminiService } from '../../services/geminiService';
+import { defaultKnowledgeRepository } from '../../services/knowledgeRepository';
 
 interface ChatMessage {
   id: string;
@@ -36,6 +37,8 @@ interface ChatMessage {
 interface AskUniBotViewProps {
   initialQuery?: string;
   allSources: Source[];
+  userName?: string;
+  userId?: string;
   onOpenHandoverModal: (initialQuestion: string, sourcesChecked: string[], reason: string) => void;
   onViewSourceModal: (source: Source) => void;
   onNavigateToActions: () => void;
@@ -44,17 +47,21 @@ interface AskUniBotViewProps {
 export const AskUniBotView: React.FC<AskUniBotViewProps> = ({
   initialQuery = '',
   allSources,
+  userName = 'Participant',
+  userId,
   onOpenHandoverModal,
   onViewSourceModal,
   onNavigateToActions,
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [recentQuestions, setRecentQuestions] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome-msg',
       sender: 'unibot',
-      text: 'Hello Awa. I am Ask UniBot, your trusted group memory for the METI UniPods AI Innovation Programme.\n\nI answer strictly from verified programme announcements, syllabus requirements, and meeting records. If information is unconfirmed or conflicting, I will flag it for human admin verification rather than speculate.',
+      text: `Hello ${userName}. I am Ask UniBot, your trusted group memory for the METI UniPods AI Innovation Programme.\n\nI answer strictly from verified programme announcements, syllabus requirements, and meeting records. If information is unconfirmed or conflicting, I will flag it for human admin verification rather than speculate.`,
       timestamp: '09:00 WAT',
     },
   ]);
@@ -64,6 +71,19 @@ export const AskUniBotView: React.FC<AskUniBotViewProps> = ({
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  const loadHistory = async () => {
+    try {
+      const history = await defaultKnowledgeRepository.getQuestionHistory(8);
+      setRecentQuestions(history);
+    } catch (e) {
+      console.warn('Failed to load question history:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, [userId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -94,7 +114,7 @@ export const AskUniBotView: React.FC<AskUniBotViewProps> = ({
 
     try {
       // Call Gemini Service (server-side proxy with strict local fallback)
-      const aiResponse = await geminiService.askUniBot(query, allSources);
+      const aiResponse = await geminiService.askUniBot(query, allSources, undefined, userId, userName);
 
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
@@ -107,6 +127,8 @@ export const AskUniBotView: React.FC<AskUniBotViewProps> = ({
       };
 
       setMessages((prev) => [...prev, botMsg]);
+      // Refresh question history in the background
+      loadHistory();
     } catch (err) {
       const errorMsg: ChatMessage = {
         id: `bot-err-${Date.now()}`,
@@ -205,6 +227,39 @@ export const AskUniBotView: React.FC<AskUniBotViewProps> = ({
               </button>
             ))}
           </div>
+
+          {/* Past Questions Drawer */}
+          {recentQuestions.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowHistory(!showHistory)}
+                className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 hover:text-blue-900"
+              >
+                <span>My Past Queries (Supabase Persisted - {recentQuestions.length})</span>
+                {showHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+              {showHistory && (
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 animate-in fade-in duration-150">
+                  {recentQuestions.map((rq: any) => (
+                    <button
+                      key={rq.id}
+                      onClick={() => handleSend(rq.question)}
+                      className="p-2 text-left rounded-xl border border-slate-200 bg-slate-50 hover:bg-white hover:border-blue-300 text-xs text-slate-800 transition-colors group"
+                    >
+                      <span className="font-medium line-clamp-1 group-hover:text-blue-900">
+                        {rq.question}
+                      </span>
+                      <span className="text-[10px] text-slate-700 flex items-center justify-between mt-1">
+                        <span className="text-emerald-700 font-semibold">{rq.confidence}</span>
+                        <span>{rq.created_at ? new Date(rq.created_at).toLocaleDateString() : 'Recent'}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -220,7 +275,7 @@ export const AskUniBotView: React.FC<AskUniBotViewProps> = ({
             {/* Sender Label */}
             <div className="flex items-center gap-2 mb-1 px-1 text-[11px] text-slate-700">
               <span className="font-semibold text-slate-700">
-                {msg.sender === 'user' ? 'Awa Diop' : 'Ask UniBot'}
+                {msg.sender === 'user' ? (userName || 'You') : 'Ask UniBot'}
               </span>
               <span>•</span>
               <span>{msg.timestamp}</span>

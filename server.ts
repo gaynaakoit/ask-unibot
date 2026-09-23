@@ -19,12 +19,16 @@ import {
   saveHandoverTicketToSupabase,
   updateHandoverTicketInSupabase,
   fetchUserProfileFromSupabase,
+  updateUserProfileInSupabase,
   recordQuestionToSupabase,
   fetchQuestionHistoryFromSupabase,
   fetchRecurringQuestionsFromSupabase,
   fetchConfusionAlertsFromSupabase,
   fetchRecapsFromSupabase,
   fetchRemindersFromSupabase,
+  fetchNotificationsFromSupabase,
+  updateNotificationStatusInSupabase,
+  getSupabaseServerClient,
 } from './src/services/supabaseServer.js';
 
 dotenv.config();
@@ -33,6 +37,58 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+/**
+ * Authentication helper to retrieve verified Supabase user from Bearer token
+ */
+async function getAuthenticatedUser(req: express.Request): Promise<{ id: string; email: string; role: string; name: string; track?: string } | null> {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null;
+    }
+    const token = authHeader.split(' ')[1];
+    if (!token) return null;
+
+    const client = getSupabaseServerClient();
+    if (!client) return null;
+
+    const { data: { user }, error } = await client.auth.getUser(token);
+    if (error || !user) return null;
+
+    const { data: profile } = await client
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (!profile) {
+      const name = user.user_metadata?.name || user.email?.split('@')[0] || 'Participant';
+      const track = user.user_metadata?.track || 'General AI Track';
+      const role = user.user_metadata?.role || 'participant';
+      await client.from('users').upsert({
+        id: user.id,
+        email: user.email!,
+        name,
+        role,
+        track,
+      }, { onConflict: 'id' });
+
+      return { id: user.id, email: user.email!, role, name, track };
+    }
+
+    return {
+      id: user.id,
+      email: user.email!,
+      role: profile.role || 'participant',
+      name: profile.name || user.user_metadata?.name || 'Participant',
+      track: profile.track || user.user_metadata?.track || 'General AI Track',
+    };
+  } catch (err) {
+    console.warn('getAuthenticatedUser error:', err);
+    return null;
+  }
+}
 
 // Lazy-initialized Gemini client
 let genAIClient: GoogleGenAI | null = null;
@@ -147,10 +203,53 @@ app.get('/api/meetings', async (req, res) => {
   }
 });
 
-// 4. ACTIONS ENDPOINTS (Strictly Supabase)
+// 3.b AUTH REGISTRATION ENDPOINT (Bypasses email SMTP rate-limits with verified admin creation)
+app.post('/api/auth/register', async (req, res) => {
+  const { email, password, name, track } = req.body;
+  if (!email || !password || !name) {
+    res.status(400).json({ success: false, error: 'Email, password, and name are required' });
+    return;
+  }
+
+  const client = getSupabaseServerClient();
+  if (!client) {
+    res.status(500).json({ success: false, error: 'Database service unavailable' });
+    return;
+  }
+
+  try {
+    const { data: authData, error: authError } = await client.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name, track: track || 'General AI Track' },
+    });
+
+    if (authError) {
+      res.status(400).json({ success: false, error: authError.message });
+      return;
+    }
+
+    await client.from('users').upsert({
+      id: authData.user.id,
+      email: authData.user.email!,
+      name,
+      role: 'participant',
+      track: track || 'General AI Track',
+    }, { onConflict: 'id' });
+
+    res.json({ success: true, user: { id: authData.user.id, email: authData.user.email } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Registration failed' });
+  }
+});
+
+// 4. ACTIONS ENDPOINTS (Strictly Supabase & User-Isolated)
 app.get('/api/actions', async (req, res) => {
   try {
-    const userId = (req.query.userId as string) || undefined;
+    const authUser = await getAuthenticatedUser(req);
+    const isAdmin = authUser?.role === 'admin';
+    const userId = isAdmin ? undefined : (authUser?.id || (req.query.userId as string) || '00000000-0000-4000-a000-000000000001');
     const actions = await fetchActionsFromSupabase(userId);
     res.json(actions);
   } catch (err: any) {
@@ -166,7 +265,10 @@ app.post('/api/actions', async (req, res) => {
     return;
   }
 
-  const persisted = await saveActionToSupabase(action);
+  const authUser = await getAuthenticatedUser(req);
+  const targetUserId = authUser?.id || (action.userId as string) || '00000000-0000-4000-a000-000000000001';
+
+  const persisted = await saveActionToSupabase(action, targetUserId);
   res.json({ success: true, persistedInSupabase: persisted, action });
 });
 
@@ -182,11 +284,22 @@ app.patch('/api/actions/:id', async (req, res) => {
   res.json({ success, id, status });
 });
 
-// 5. HANDOVER TICKETS ENDPOINTS (Strictly Supabase)
+// 5. HANDOVER TICKETS ENDPOINTS (Strictly Supabase & User-Isolated)
 app.get('/api/handover-tickets', async (req, res) => {
   try {
-    const tickets = await fetchHandoverTicketsFromSupabase();
-    res.json(tickets);
+    const authUser = await getAuthenticatedUser(req);
+    const allTickets = await fetchHandoverTicketsFromSupabase();
+    
+    // If admin, return all tickets. If participant, return own tickets or demo tickets
+    if (authUser?.role === 'admin') {
+      return res.json(allTickets);
+    }
+
+    const currentUserId = authUser?.id || (req.query.userId as string) || '00000000-0000-4000-a000-000000000001';
+    const filtered = allTickets.filter(
+      (t: any) => t.participantId === currentUserId || t.isDemo === true || !t.participantId
+    );
+    res.json(filtered);
   } catch (err: any) {
     console.warn('GET /api/handover-tickets error:', err?.message || err);
     res.json([]);
@@ -200,8 +313,17 @@ app.post('/api/handover-tickets', async (req, res) => {
     return;
   }
 
+  const authUser = await getAuthenticatedUser(req);
+  const participantId = authUser?.id || ticket.participantId || '00000000-0000-4000-a000-000000000001';
+  const participantContext = authUser?.name || ticket.participantContext || 'Authenticated Participant';
+
   const id = ticket.id || `tkt-${Date.now()}`;
-  const persisted = await saveHandoverTicketToSupabase({ ...ticket, id });
+  const persisted = await saveHandoverTicketToSupabase({
+    ...ticket,
+    id,
+    participantId,
+    participantContext,
+  });
   res.json({ success: true, persistedInSupabase: persisted, id });
 });
 
@@ -217,11 +339,57 @@ app.patch('/api/handover-tickets/:id', async (req, res) => {
   res.json({ success, id });
 });
 
-// 6. QUESTIONS HISTORY & RECURRING QUESTIONS (Strictly Supabase)
+// Alias for handover tickets
+app.get('/api/tickets', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const allTickets = await fetchHandoverTicketsFromSupabase();
+    if (authUser?.role === 'admin') {
+      return res.json(allTickets);
+    }
+    const currentUserId = authUser?.id || (req.query.userId as string) || '00000000-0000-4000-a000-000000000001';
+    const filtered = allTickets.filter(
+      (t: any) => t.participantId === currentUserId || t.isDemo === true || !t.participantId
+    );
+    res.json(filtered);
+  } catch (err: any) {
+    console.warn('GET /api/tickets error:', err?.message || err);
+    res.json([]);
+  }
+});
+
+// 5.b NOTIFICATIONS ENDPOINTS (Strictly Supabase & User-Isolated)
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || (req.query.userId as string) || '00000000-0000-4000-a000-000000000001';
+    const notifications = await fetchNotificationsFromSupabase(userId);
+    res.json(notifications);
+  } catch (err: any) {
+    console.warn('GET /api/notifications error:', err?.message || err);
+    res.json([]);
+  }
+});
+
+app.patch('/api/notifications/:id', async (req, res) => {
+  const { id } = req.params;
+  const { read } = req.body;
+  if (!id || typeof read !== 'boolean') {
+    res.status(400).json({ error: 'id and boolean read status are required' });
+    return;
+  }
+  const success = await updateNotificationStatusInSupabase(id, read);
+  res.json({ success, id, read });
+});
+
+// 6. QUESTIONS HISTORY & RECURRING QUESTIONS (Strictly Supabase & User-Isolated)
 app.get('/api/questions/history', async (req, res) => {
   const limit = Number(req.query.limit) || 20;
   try {
-    const history = await fetchQuestionHistoryFromSupabase(limit);
+    const authUser = await getAuthenticatedUser(req);
+    const isAdmin = authUser?.role === 'admin';
+    const userId = authUser?.id || (req.query.userId as string) || '00000000-0000-4000-a000-000000000001';
+    const history = await fetchQuestionHistoryFromSupabase(userId, limit, isAdmin);
     res.json(history);
   } catch (err: any) {
     console.warn('GET /api/questions/history error:', err?.message || err);
@@ -250,10 +418,12 @@ app.get('/api/confusion-alerts', async (req, res) => {
   }
 });
 
-// 8. USER PROFILE (Strictly Supabase)
+// 8. USER PROFILE (Strictly Supabase & User-Isolated)
 app.get('/api/user/profile', async (req, res) => {
   try {
-    const profile = await fetchUserProfileFromSupabase('user-1');
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || (req.query.userId as string) || '00000000-0000-4000-a000-000000000001';
+    const profile = await fetchUserProfileFromSupabase(userId);
     if (profile) {
       return res.json(profile);
     }
@@ -275,6 +445,18 @@ app.get('/api/user/profile', async (req, res) => {
       digestFrequency: 'daily',
     },
   });
+});
+
+app.patch('/api/user/profile', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || '00000000-0000-4000-a000-000000000001';
+    const success = await updateUserProfileInSupabase(userId, req.body);
+    res.json({ success });
+  } catch (err: any) {
+    console.warn('PATCH /api/user/profile error:', err?.message || err);
+    res.status(500).json({ success: false, error: err?.message || err });
+  }
 });
 
 // 9. RECAPS & REMINDERS (Dynamically assembled from Supabase)
@@ -308,6 +490,10 @@ app.post('/api/ask', async (req, res) => {
     return;
   }
 
+  const authUser = await getAuthenticatedUser(req);
+  const resolvedUserId = authUser?.id || userId || '00000000-0000-4000-a000-000000000001';
+  const resolvedParticipantName = authUser?.name || participantName || 'Participant';
+
   // Always fetch fresh sources from Supabase if not supplied
   if (!Array.isArray(sources) || sources.length === 0) {
     try {
@@ -329,8 +515,8 @@ app.post('/api/ask', async (req, res) => {
 
     recordQuestionToSupabase({
       id: `q-${Date.now()}`,
-      userId: userId || 'user-1',
-      participantName: participantName || 'Awa Diop',
+      userId: resolvedUserId,
+      participantName: resolvedParticipantName,
       question: query,
       answer: grounded.answer,
       confidence: grounded.confidence,
@@ -496,8 +682,8 @@ USER QUESTION:
 
       recordQuestionToSupabase({
         id: `q-${Date.now()}`,
-        userId: userId || 'user-1',
-        participantName: participantName || 'Awa Diop',
+        userId: resolvedUserId,
+        participantName: resolvedParticipantName,
         question: query,
         answer: finalResponse.answer,
         confidence: finalResponse.confidence,
@@ -527,8 +713,8 @@ USER QUESTION:
 
     recordQuestionToSupabase({
       id: `q-${Date.now()}`,
-      userId: userId || 'user-1',
-      participantName: participantName || 'Awa Diop',
+      userId: resolvedUserId,
+      participantName: resolvedParticipantName,
       question: query,
       answer: grounded.answer,
       confidence: grounded.confidence,

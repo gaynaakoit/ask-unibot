@@ -7,7 +7,8 @@
  * All data strictly originates from Supabase PostgreSQL.
  */
 
-import { Source, MeetingDecision, Meeting, ActionItem, HumanHandoverTicket, UserProfile, ConfusionAlert, RecurringQuestion, Recap, EventReminder } from '../types';
+import { Source, MeetingDecision, Meeting, ActionItem, HumanHandoverTicket, UserProfile, ConfusionAlert, RecurringQuestion, Recap, EventReminder, AppNotification } from '../types';
+import { getAuthHeaders } from './currentUserService';
 
 export interface RecordQuestionParams {
   id: string;
@@ -47,6 +48,9 @@ export interface KnowledgeRepository {
   saveHandoverTicket(ticket: HumanHandoverTicket): Promise<boolean>;
   updateHandoverTicket(id: string, updates: Partial<HumanHandoverTicket>): Promise<boolean>;
   getUserProfile(): Promise<UserProfile | null>;
+  updateUserProfile(updates: Partial<UserProfile>): Promise<boolean>;
+  getNotifications(userId?: string): Promise<AppNotification[]>;
+  updateNotificationStatus(id: string, read: boolean): Promise<boolean>;
   getConfusionAlerts(): Promise<ConfusionAlert[]>;
   getRecurringQuestions(): Promise<RecurringQuestion[]>;
   getRecaps(): Promise<Recap[]>;
@@ -155,8 +159,9 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async getActions(userId?: string): Promise<ActionItem[]> {
     try {
+      const headers = await getAuthHeaders();
       const url = userId ? `/api/actions?userId=${encodeURIComponent(userId)}` : '/api/actions';
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -171,9 +176,10 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async saveAction(action: ActionItem): Promise<boolean> {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch('/api/actions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(action),
       });
       return res.ok;
@@ -185,9 +191,10 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async updateActionStatus(id: string, status: string): Promise<boolean> {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/actions/${encodeURIComponent(id)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ status }),
       });
       return res.ok;
@@ -199,7 +206,8 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async getHandoverTickets(): Promise<HumanHandoverTicket[]> {
     try {
-      const res = await fetch('/api/handover-tickets');
+      const headers = await getAuthHeaders();
+      const res = await fetch('/api/handover-tickets', { headers });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -214,9 +222,10 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async saveHandoverTicket(ticket: HumanHandoverTicket): Promise<boolean> {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch('/api/handover-tickets', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(ticket),
       });
       return res.ok;
@@ -228,9 +237,10 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async updateHandoverTicket(id: string, updates: Partial<HumanHandoverTicket>): Promise<boolean> {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`/api/handover-tickets/${encodeURIComponent(id)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(updates),
       });
       return res.ok;
@@ -242,7 +252,8 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async getUserProfile(): Promise<UserProfile | null> {
     try {
-      const res = await fetch('/api/user/profile');
+      const headers = await getAuthHeaders();
+      const res = await fetch('/api/user/profile', { headers });
       if (res.ok) {
         return await res.json();
       }
@@ -250,6 +261,21 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
       console.warn('getUserProfile fetch error:', err);
     }
     return null;
+  }
+
+  public async updateUserProfile(updates: Partial<UserProfile>): Promise<boolean> {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(updates),
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('updateUserProfile error:', err);
+      return false;
+    }
   }
 
   public async getConfusionAlerts(): Promise<ConfusionAlert[]> {
@@ -312,11 +338,44 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
     return [];
   }
 
+  public async getNotifications(userId?: string): Promise<AppNotification[]> {
+    try {
+      const headers = await getAuthHeaders();
+      const url = userId ? `/api/notifications?userId=${encodeURIComponent(userId)}` : '/api/notifications';
+      const res = await fetch(url, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          return data;
+        }
+      }
+    } catch (err) {
+      console.warn('getNotifications error:', err);
+    }
+    return [];
+  }
+
+  public async updateNotificationStatus(id: string, read: boolean): Promise<boolean> {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/notifications/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ read }),
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('updateNotificationStatus error:', err);
+      return false;
+    }
+  }
+
   public async recordQuestion(params: RecordQuestionParams): Promise<boolean> {
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch('/api/questions/record', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(params),
       });
       return res.ok;
@@ -328,7 +387,8 @@ export class SupabaseKnowledgeRepository implements KnowledgeRepository {
 
   public async getQuestionHistory(limit: number = 20): Promise<any[]> {
     try {
-      const res = await fetch(`/api/questions/history?limit=${limit}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/questions/history?limit=${limit}`, { headers });
       if (res.ok) {
         return await res.json();
       }

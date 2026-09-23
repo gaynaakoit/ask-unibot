@@ -204,7 +204,9 @@ INSERT INTO knowledge_chunks (id, source_id, text, title, tags, published_at, ef
   ('chk-src-4-main', 'src-4', 'Preliminary prototype submission date initially scheduled for 27 September 2026 at 17:00 WAT. (NOTE: This has been superseded by Organiser Clarification on 21 Sep moving deadline to 29 Sep).', 'Earlier Programme Briefing: Preliminary Prototype Due Date', ARRAY['prototype', 'deadline', 'superseded'], '18 Sep 2026', '18 Sep 2026', 'verified', TRUE),
   ('chk-src-5-main', 'src-5', 'For Milestone 2 validation, each team must complete and document at least 5 structured customer discovery interviews using the Wadhwani problem-solution interview template before demo day.', 'Wadhwani Foundation Customer Discovery Guidelines', ARRAY['wadhwani', 'market_validation', 'interviews'], '19 Sep 2026', '19 Sep 2026', 'official', TRUE),
   ('chk-src-6-main', 'src-6', 'MIT faculty office hours are scheduled on Wednesday, 23 September from 14:00 to 17:00 WAT. Teams may book 15-minute 1-on-1 technical advisory slots via the UniPods dashboard booking calendar.', 'Mentor Office Hours Schedule (Week 3)', ARRAY['mentorship', 'office_hours', 'advisory'], '21 Sep 2026', '21 Sep 2026', 'official', TRUE),
-  ('chk-src-7-main', 'src-7', 'Official Meeting Room: All upcoming live sessions will be hosted on Microsoft Teams at https://teams.microsoft.com/l/meetup-join/unipods-2026-room1. The previous Zoom link from 15 Sep is permanently decommissioned due to capacity limits.', 'UniPods Live Virtual Room Link (Updated)', ARRAY['link', 'teams', 'virtual_room'], '21 Sep 2026', '21 Sep 2026', 'official', TRUE)
+  ('chk-src-7-main', 'src-7', 'Official Meeting Room: All upcoming live sessions will be hosted on Microsoft Teams at https://teams.microsoft.com/l/meetup-join/unipods-2026-room1. The previous Zoom link from 15 Sep is permanently decommissioned due to capacity limits.', 'UniPods Live Virtual Room Link (Updated)', ARRAY['link', 'teams', 'virtual_room'], '21 Sep 2026', '21 Sep 2026', 'official', TRUE),
+  ('chk-src-8-main', 'src-8', 'Meeting room zoom link: https://zoom.us/j/981273910. DO NOT USE. Replaced by Teams room.', 'Decommissioned Zoom Room (Old)', ARRAY['link', 'zoom', 'superseded'], '15 Sep 2026', '15 Sep 2026', 'verified', TRUE),
+  ('chk-src-9-main', 'src-9', 'Programme participants are eligible for prototyping reimbursement grants up to $1,500 per team upon successful Milestone 3 verification. Note: There is NO cash prize of $50,000; rumours of direct individual cash awards are false.', 'METI Innovation Grant Disbursement Policy', ARRAY['grants', 'budget', 'reimbursement', 'clarification'], '17 Sep 2026', '17 Sep 2026', 'official', TRUE)
 ON CONFLICT (id) DO UPDATE SET
   text = EXCLUDED.text,
   title = EXCLUDED.title,
@@ -303,14 +305,55 @@ INSERT INTO meetings (id, title, meeting_date, time_wat, status, summary, what_w
     'src-1',
     'UniPods Official Announcement #12',
     TRUE
+  ),
+  (
+    'meet-2',
+    'MIT Learn Deep Dive: Embeddings & Context Retrieval',
+    '19 September 2026',
+    '14:00 WAT',
+    'completed',
+    'Technical architecture of Retrieval Augmented Generation, vector index optimization, and multilingual prompting.',
+    '["Technical architecture of Retrieval Augmented Generation (RAG).", "Optimizing vector index size for constrained local device environments.", "Handling multilingual prompts (French, Wolof, Yoruba) in African agricultural datasets."]'::jsonb,
+    '[{"title": "Fork MIT RAG Colab Starter", "assignee": "Tech Leads", "deadline": "20 Sep 2026"}]'::jsonb,
+    '[{"title": "Lecture Slides (PDF)", "url": "https://learn.mit.edu/courses/unipods-ai-2026/m4-slides.pdf", "type": "slides"}, {"title": "Colab Notebook", "url": "https://colab.research.google.com/github/mit-learn/unipods-rag", "type": "doc"}]'::jsonb,
+    'Completed',
+    'src-3',
+    'MIT Learn Module 4 Curriculum Notice',
+    TRUE
+  ),
+  (
+    'meet-3',
+    'Wadhwani Market Validation Workshop',
+    '16 September 2026',
+    '11:00 WAT',
+    'completed',
+    'Customer discovery methods for emerging African markets and translating technical AI capabilities into value propositions.',
+    '["Customer discovery methods for emerging African markets.", "Translating technical AI capabilities into clear value propositions for local cooperatives."]'::jsonb,
+    '[{"title": "Complete 5 Customer Discovery Interviews", "assignee": "Venture Leads", "deadline": "27 Sep 2026"}]'::jsonb,
+    '[{"title": "Interview Guide & Rubric (PDF)", "url": "https://wadhwanifoundation.org/ventures/unipods-toolkit", "type": "template"}]'::jsonb,
+    'Completed',
+    'src-5',
+    'Wadhwani Foundation Customer Discovery Guidelines',
+    TRUE
   )
 ON CONFLICT (id) DO UPDATE SET
   title = EXCLUDED.title,
-  summary = EXCLUDED.summary;
+  meeting_date = EXCLUDED.meeting_date,
+  time_wat = EXCLUDED.time_wat,
+  status = EXCLUDED.status,
+  summary = EXCLUDED.summary,
+  what_was_discussed = EXCLUDED.what_was_discussed,
+  action_items = EXCLUDED.action_items,
+  resources = EXCLUDED.resources,
+  next_session = EXCLUDED.next_session,
+  source_id = EXCLUDED.source_id,
+  source_title = EXCLUDED.source_title,
+  is_demo = EXCLUDED.is_demo;
 
 INSERT INTO meeting_decisions (meeting_id, decision_id) VALUES
   ('meet-1', 'dec-proto-29'),
-  ('meet-1', 'dec-team-lock')
+  ('meet-1', 'dec-team-lock'),
+  ('meet-1', 'dec-platform-teams')
 ON CONFLICT (meeting_id, decision_id) DO NOTHING;
 
 -- 6. SEED ACTIONS
@@ -374,13 +417,49 @@ INSERT INTO actions (id, user_id, title, description, due_date, status, priority
     'Wadhwani Interview Template',
     'Use standardized feedback questions from Section 3.',
     TRUE
+  ),
+  (
+    'act-5',
+    'user-1',
+    'Setup team GitHub repository with Apache 2.0 license',
+    'Initialize repository with UniPods RAG starter kit and MIT/UniPods template.',
+    '20 Sep 2026',
+    'completed',
+    'normal',
+    'src-1',
+    'UniPods Official Announcement #12',
+    'https://github.com/awadiop/agro-rag-unipods',
+    'View Team GitHub Repo',
+    'Repository initialized with MIT/UniPods template.',
+    TRUE
+  ),
+  (
+    'act-6',
+    'user-1',
+    'Claim $250 Google Cloud & Vertex AI credits voucher',
+    'Redeem unique cloud computing token sent to registered email.',
+    '23 Sep 2026',
+    'pending',
+    'normal',
+    'src-1',
+    'UniPods Official Announcement #12',
+    'https://unipods.meti.org/cloud-voucher',
+    'Redeem Voucher Code',
+    'Check registered email for redemption token.',
+    TRUE
   )
 ON CONFLICT (id) DO UPDATE SET
   title = EXCLUDED.title,
+  description = EXCLUDED.description,
   due_date = EXCLUDED.due_date,
   status = EXCLUDED.status,
   priority = EXCLUDED.priority,
-  resource_link = EXCLUDED.resource_link;
+  source_id = EXCLUDED.source_id,
+  source_title = EXCLUDED.source_title,
+  resource_link = EXCLUDED.resource_link,
+  resource_name = EXCLUDED.resource_name,
+  notes = EXCLUDED.notes,
+  is_demo = EXCLUDED.is_demo;
 
 -- 7. SEED INITIAL HANDOVER TICKETS
 INSERT INTO handover_tickets (id, question_id, participant_id, participant_context, question, status, detected_conflict, conflict_or_missing, recommended_admin, is_demo) VALUES
@@ -410,4 +489,109 @@ INSERT INTO handover_tickets (id, question_id, participant_id, participant_conte
   )
 ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
-  question = EXCLUDED.question;
+  question = EXCLUDED.question,
+  participant_context = EXCLUDED.participant_context,
+  conflict_or_missing = EXCLUDED.conflict_or_missing,
+  recommended_admin = EXCLUDED.recommended_admin,
+  is_demo = EXCLUDED.is_demo;
+
+-- 8. SEED NOTIFICATIONS
+INSERT INTO notifications (id, user_id, type, title, message, read, scheduled_for, created_at) VALUES
+  (
+    'notif-1',
+    'user-1',
+    'announcement',
+    'Deadline Extended: Prototype Submission (29 Sep)',
+    'Official notice: Prototype concept submission deadline has been extended to Tuesday, 29 September at 23:59 WAT.',
+    FALSE,
+    NULL,
+    '2026-09-21T11:00:00Z'
+  ),
+  (
+    'notif-2',
+    'user-1',
+    'reminder',
+    'Tomorrow: Live Mentorship Session (10:00 WAT)',
+    'Live cohort session on Microsoft Teams tomorrow morning. Attendance is mandatory for technical leads.',
+    FALSE,
+    NULL,
+    '2026-09-21T16:00:00Z'
+  ),
+  (
+    'notif-3',
+    'user-1',
+    'action',
+    'MIT Learn Module 4 Due in 3 Days',
+    'Remember to complete the RAG quiz and Colab notebook before Thursday 24 Sep at 18:00 WAT.',
+    TRUE,
+    NULL,
+    '2026-09-21T09:00:00Z'
+  )
+ON CONFLICT (id) DO UPDATE SET
+  title = EXCLUDED.title,
+  message = EXCLUDED.message,
+  read = EXCLUDED.read;
+
+-- 9. SEED CANONICAL QUESTIONS (Demonstrating verified RAG & conflict resolution)
+INSERT INTO questions (id, user_id, participant_name, question, answer, confidence, needs_human, next_step, grounding_method, conflict_detected, conflict_resolved, conflict_topic, freshness_status, explanation_simple) VALUES
+  (
+    'q-seed-1',
+    'user-1',
+    'Awa Diop',
+    'When is the prototype submission deadline?',
+    'The official prototype submission deadline is Tuesday, 29 September 2026 at 23:59 WAT. This official extension was confirmed by Eng. Kwame Mensah following MIT and Wadhwani faculty review. Note: The previous 27 September deadline was officially superseded.',
+    'CONFIRMED',
+    FALSE,
+    'Submit GitHub repo and video link via UniPods portal before 29 Sep 23:59 WAT.',
+    'deterministic-rag',
+    TRUE,
+    TRUE,
+    'Prototype Submission Deadline',
+    'current',
+    'Your prototype and presentation are due on Tuesday, 29 September by 11:59 PM West Africa Time.'
+  ),
+  (
+    'q-seed-2',
+    'user-1',
+    'Awa Diop',
+    'When is the next live session?',
+    'Your next live session is Tuesday, 22 September 2026 at 10:00 WAT. The session will be conducted exclusively on Microsoft Teams at https://teams.microsoft.com/l/meetup-join/unipods-2026-room1. Attendance is mandatory for team technical representatives.',
+    'CONFIRMED',
+    FALSE,
+    'Join Microsoft Teams room at 10:00 WAT on Tuesday.',
+    'deterministic-rag',
+    FALSE,
+    FALSE,
+    NULL,
+    'current',
+    'Our next live online class is on Tuesday, 22 September at 10:00 AM WAT using Microsoft Teams, not Zoom.'
+  ),
+  (
+    'q-seed-3',
+    'user-1',
+    'Awa Diop',
+    'Is there a $50,000 cash prize for winning teams?',
+    'No. Rumours of a $50,000 direct cash award are inaccurate. According to the METI Innovation Grant Disbursement Policy, eligible teams receive prototyping reimbursement grants up to $1,500 following Milestone 3 verification.',
+    'CONFIRMED',
+    FALSE,
+    'Refer to the METI Innovation Grant Policy document for reimbursement criteria.',
+    'deterministic-rag',
+    FALSE,
+    FALSE,
+    NULL,
+    'current',
+    'There is no 50k cash prize. Teams can get up to $1,500 in approved prototype expense reimbursements.'
+  )
+ON CONFLICT (id) DO UPDATE SET
+  answer = EXCLUDED.answer,
+  confidence = EXCLUDED.confidence,
+  explanation_simple = EXCLUDED.explanation_simple;
+
+INSERT INTO question_sources (question_id, source_id, evidence, relevance) VALUES
+  ('q-seed-1', 'src-2', 'Prototype submission deadline extended to Tuesday, 29 September 2026 at 23:59 WAT.', 1.0),
+  ('q-seed-1', 'src-4', 'Preliminary prototype submission date initially scheduled for 27 September (superseded).', 0.8),
+  ('q-seed-2', 'src-1', 'Live session on Tuesday, 22 September 2026 at 10:00 WAT on Microsoft Teams.', 1.0),
+  ('q-seed-2', 'src-7', 'Official Meeting Room on Microsoft Teams. Zoom link permanently decommissioned.', 1.0),
+  ('q-seed-3', 'src-9', 'Participants eligible for prototyping reimbursement grants up to $1,500. No cash prize of $50,000.', 1.0)
+ON CONFLICT DO NOTHING;
+

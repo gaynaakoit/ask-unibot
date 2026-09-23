@@ -377,3 +377,14 @@ export type ActiveTab =
   | 'admin-sources'
   | 'admin-handover'
   | 'admin-meetings';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  scheduledFor?: string | null;
+  createdAt: string;
+}
