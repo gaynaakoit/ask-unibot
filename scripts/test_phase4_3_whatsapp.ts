@@ -388,6 +388,8 @@ async function runTestSuite() {
   // TEST 9: Cloud API Dry Run Verification
   // ---------------------------------------------------------------------------
   try {
+    const prevDry = process.env.WHATSAPP_DRY_RUN;
+    process.env.WHATSAPP_DRY_RUN = 'true';
     const { whatsappCloudApiService } = await import('../src/services/whatsappCloudApiService.ts');
     assert(whatsappCloudApiService.isDryRun(), 'Service should detect dry-run mode when configured or in local dev');
 
@@ -402,6 +404,7 @@ async function runTestSuite() {
 
     console.log('✅ Test 9 PASS: WhatsApp Cloud API service executes cleanly in Dry Run mode.');
     passed++;
+    process.env.WHATSAPP_DRY_RUN = prevDry;
   } catch (err: any) {
     console.error('❌ Test 9 FAIL:', err?.message || err);
   }

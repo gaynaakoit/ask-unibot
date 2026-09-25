@@ -22,6 +22,7 @@ import {
 } from './types';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { I18nProvider, SupportedLanguage } from './i18n';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { MobileNav } from './components/layout/MobileNav';
@@ -46,6 +47,8 @@ import { AdminQuestionsView } from './components/views/admin/AdminQuestionsView'
 import { AdminClarityView } from './components/views/admin/AdminClarityView';
 import { AdminHandoverView } from './components/views/admin/AdminHandoverView';
 import { AdminSourcesView } from './components/views/admin/AdminSourcesView';
+import { AdminGroupMemoryView } from './components/views/admin/AdminGroupMemoryView';
+import { AdminWhatsAppGroupsView } from './components/views/admin/AdminWhatsAppGroupsView';
 
 import { defaultKnowledgeService } from './services/knowledgeService';
 import { defaultKnowledgeRepository } from './services/knowledgeRepository';
@@ -574,6 +577,13 @@ const AppContent: React.FC = () => {
               allSources={sources}
             />
           )}
+
+          {activeTab === 'admin-group-memory' && <AdminGroupMemoryView />}
+          {activeTab === 'admin-whatsapp-groups' && (
+            <AdminWhatsAppGroupsView
+              onNavigateToGroupMemory={() => setActiveTab('admin-group-memory')}
+            />
+          )}
         </main>
       </div>
 
@@ -610,10 +620,29 @@ const AppContent: React.FC = () => {
   );
 };
 
+const I18nWrappedApp: React.FC = () => {
+  const { profile, updateProfile } = useAuth();
+
+  const handleLanguageChange = async (newLang: SupportedLanguage) => {
+    if (profile) {
+      await updateProfile({ preferredLanguage: newLang });
+    }
+  };
+
+  return (
+    <I18nProvider
+      initialLanguage={profile?.preferredLanguage || 'en'}
+      onLanguageChange={handleLanguageChange}
+    >
+      <AppContent />
+    </I18nProvider>
+  );
+};
+
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AppContent />
+      <I18nWrappedApp />
     </AuthProvider>
   );
 };

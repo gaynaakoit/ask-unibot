@@ -14,12 +14,13 @@
  */
 
 import { AiResponse } from '../types';
+import { translate, SupportedLanguage } from '../i18n/index.js';
 
 export class WhatsAppResponseService {
   /**
    * Formats a structured AiResponse into a mobile-friendly WhatsApp message.
    */
-  public formatWhatsAppResponse(response: AiResponse): string {
+  public formatWhatsAppResponse(response: AiResponse, lang: SupportedLanguage = 'en'): string {
     const parts: string[] = [];
 
     // 1. Answer text based on confidence
@@ -30,37 +31,43 @@ export class WhatsAppResponseService {
       if (Array.isArray(response.sources) && response.sources.length > 0) {
         const topSource = response.sources[0];
         const sourceTitle = topSource.title || 'Official UniPods update';
-        parts.push(`Source:\n${sourceTitle}`);
+        parts.push(`${translate('whatsapp.sourceLabel', lang)}\n${sourceTitle}`);
       } else if (Array.isArray(response.evidenceItems) && response.evidenceItems.length > 0) {
         const topEv = response.evidenceItems[0];
         const evTitle = topEv.title || 'Official UniPods update';
-        parts.push(`Source:\n${evTitle}`);
+        parts.push(`${translate('whatsapp.sourceLabel', lang)}\n${evTitle}`);
       }
 
       // Next step
       if (response.nextStep && response.nextStep.trim() !== '') {
-        parts.push(`Next step:\n${response.nextStep.trim()}`);
+        parts.push(`${translate('whatsapp.nextStepLabel', lang)}\n${response.nextStep.trim()}`);
       }
     } else if (response.confidence === 'NEEDS_ADMIN_CONFIRMATION') {
-      parts.push(`⚠️ Information Pending Programme Confirmation:\n\n${response.answer.trim()}`);
+      const pendingPrefix = translate('whatsapp.pendingConfirmation', lang, { answer: response.answer.trim() });
+      parts.push(pendingPrefix);
 
       if (response.conflict?.summary) {
-        parts.push(`Note:\n${response.conflict.summary}`);
+        parts.push(`${translate('whatsapp.noteLabel', lang)}\n${response.conflict.summary}`);
       }
 
       if (response.nextStep && response.nextStep.trim() !== '') {
-        parts.push(`Next step:\n${response.nextStep.trim()}`);
+        parts.push(`${translate('whatsapp.nextStepLabel', lang)}\n${response.nextStep.trim()}`);
       } else {
-        parts.push('Next step:\nA ticket has been sent to the UniPods coordination team for clarification.');
+        const defaultHandover = lang === 'fr'
+          ? 'Une demande de clarification a été transmise à l’équipe de coordination UniPods.'
+          : lang === 'pt'
+          ? 'Foi enviado um pedido de esclarecimento à equipa de coordenação UniPods.'
+          : lang === 'ar'
+          ? 'تم إرسال بطاقة استفسار إلى فريق تنسيق UniPods للتوضيح الرسمي.'
+          : 'A ticket has been sent to the UniPods coordination team for clarification.';
+        parts.push(`${translate('whatsapp.nextStepLabel', lang)}\n${defaultHandover}`);
       }
     } else {
       // NOT_FOUND
-      parts.push(
-        "I couldn't find a verified answer to that in the approved UniPods programme documentation.\n\nI have forwarded your question to the programme team for official confirmation."
-      );
+      parts.push(translate('whatsapp.notFoundInDocs', lang));
 
       if (response.nextStep && response.nextStep.trim() !== '') {
-        parts.push(`Next step:\n${response.nextStep.trim()}`);
+        parts.push(`${translate('whatsapp.nextStepLabel', lang)}\n${response.nextStep.trim()}`);
       }
     }
 
@@ -71,41 +78,29 @@ export class WhatsAppResponseService {
    * Controlled message for unlinked / unknown phone numbers.
    * Does NOT call Gemini, does NOT create a user.
    */
-  public formatUnknownUserResponse(phoneNumber?: string): string {
-    return (
-      'Your WhatsApp number is not linked to an Ask UniBot account yet.\n\n' +
-      'Please contact your UniPods administrator to activate access.'
-    );
+  public formatUnknownUserResponse(phoneNumber?: string, lang: SupportedLanguage = 'en'): string {
+    return translate('whatsapp.notLinked', lang);
   }
 
   /**
    * Controlled message for blocked phone numbers.
    */
-  public formatBlockedUserResponse(): string {
-    return (
-      'WhatsApp access is currently not available for this number.\n\n' +
-      'Please contact your UniPods coordinator through the web portal.'
-    );
+  public formatBlockedUserResponse(lang: SupportedLanguage = 'en'): string {
+    return translate('whatsapp.blocked', lang);
   }
 
   /**
    * Controlled message for non-textual messages.
    */
-  public formatNonTextMessageResponse(): string {
-    return (
-      'Ask UniBot currently accepts written text questions on WhatsApp.\n\n' +
-      'Please send your question as a text message.'
-    );
+  public formatNonTextMessageResponse(lang: SupportedLanguage = 'en'): string {
+    return translate('whatsapp.nonText', lang);
   }
 
   /**
    * Controlled message for unexpected processing warnings.
    */
-  public formatFallbackErrorResponse(): string {
-    return (
-      'Ask UniBot is temporarily unable to retrieve this information.\n\n' +
-      'Your inquiry has been recorded and will be reviewed by the programme coordination desk.'
-    );
+  public formatFallbackErrorResponse(lang: SupportedLanguage = 'en'): string {
+    return translate('whatsapp.systemError', lang);
   }
 }
 

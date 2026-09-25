@@ -21,8 +21,10 @@ import {
   Inbox,
   Clock,
   Layers,
+  Users,
 } from 'lucide-react';
 import { ActiveTab } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -41,44 +43,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
   openConfusionCount,
   openHandoverCount,
 }) => {
+  const { t } = useI18n();
+
   const participantNav = [
-    { id: 'dashboard' as ActiveTab, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'ask' as ActiveTab, label: 'Ask UniBot', icon: MessageSquare, badge: 'Grounded' },
+    { id: 'dashboard' as ActiveTab, label: t('navigation.dashboard'), icon: LayoutDashboard },
+    { id: 'ask' as ActiveTab, label: t('navigation.ask'), icon: MessageSquare, badge: 'Grounded' },
     { id: 'what-did-i-miss' as ActiveTab, label: 'What Did I Miss', icon: Sparkles, highlight: true },
-    { id: 'meetings' as ActiveTab, label: 'Meeting Memory', icon: CalendarDays },
+    { id: 'meetings' as ActiveTab, label: t('navigation.adminMeetings'), icon: CalendarDays },
     {
       id: 'actions' as ActiveTab,
-      label: 'My Actions',
+      label: t('navigation.actions'),
       icon: CheckSquare,
       badge: pendingActionsCount > 0 ? `${pendingActionsCount}` : undefined,
     },
-    { id: 'sources' as ActiveTab, label: 'Approved Sources', icon: BookOpen },
-    { id: 'recaps' as ActiveTab, label: 'Daily & Weekly Recaps', icon: Newspaper },
-    { id: 'reminders' as ActiveTab, label: 'Event Reminders', icon: Bell },
+    { id: 'sources' as ActiveTab, label: t('navigation.sources'), icon: BookOpen },
+    { id: 'recaps' as ActiveTab, label: t('navigation.recaps'), icon: Newspaper },
+    { id: 'reminders' as ActiveTab, label: t('navigation.reminders'), icon: Bell },
     { id: 'whatsapp-sim' as ActiveTab, label: 'WhatsApp Simulator', icon: Smartphone },
-    { id: 'profile' as ActiveTab, label: 'Participant Profile', icon: User },
+    { id: 'profile' as ActiveTab, label: t('navigation.profile'), icon: User },
   ];
 
   const adminNav = [
-    { id: 'admin-overview' as ActiveTab, label: 'Command Overview', icon: LayoutDashboard },
+    { id: 'admin-overview' as ActiveTab, label: t('navigation.adminOverview'), icon: LayoutDashboard },
     {
       id: 'admin-confusion' as ActiveTab,
-      label: 'Confusion Detector',
+      label: t('navigation.adminConfusion'),
       icon: AlertTriangle,
       badge: openConfusionCount > 0 ? `${openConfusionCount} High` : undefined,
       badgeColor: 'bg-amber-100 text-amber-900 border-amber-300',
     },
-    { id: 'admin-questions' as ActiveTab, label: 'Recurring Questions', icon: HelpCircle },
+    { id: 'admin-questions' as ActiveTab, label: t('navigation.adminQuestions'), icon: HelpCircle },
     { id: 'admin-clarity' as ActiveTab, label: 'Clarity Checker', icon: FileCheck2 },
     {
       id: 'admin-handover' as ActiveTab,
-      label: 'Human Handover',
+      label: t('navigation.adminHandover'),
       icon: Inbox,
       badge: openHandoverCount > 0 ? `${openHandoverCount}` : undefined,
       badgeColor: 'bg-rose-100 text-rose-800 border-rose-300',
     },
-    { id: 'admin-sources' as ActiveTab, label: 'Sources Management', icon: BookOpen },
-    { id: 'admin-meetings' as ActiveTab, label: 'Meeting Management', icon: CalendarDays },
+    { id: 'admin-sources' as ActiveTab, label: t('navigation.adminSources'), icon: BookOpen },
+    { id: 'admin-meetings' as ActiveTab, label: t('navigation.adminMeetings'), icon: CalendarDays },
+    { id: 'admin-group-memory' as ActiveTab, label: t('navigation.adminGroupMemory'), icon: MessageSquare },
+    { id: 'admin-whatsapp-groups' as ActiveTab, label: t('navigation.adminWhatsAppGroups'), icon: Users },
   ];
 
   return (

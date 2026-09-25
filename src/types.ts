@@ -345,6 +345,7 @@ export interface UserProfile {
   track: string;
   team: string;
   role: string;
+  preferredLanguage?: 'en' | 'fr' | 'pt' | 'ar';
   preferences: {
     smartSilenceActive: boolean;
     plainLanguageExplanationPreferred: boolean;
@@ -380,7 +381,9 @@ export type ActiveTab =
   | 'admin-clarity'
   | 'admin-sources'
   | 'admin-handover'
-  | 'admin-meetings';
+  | 'admin-meetings'
+  | 'admin-group-memory'
+  | 'admin-whatsapp-groups';
 
 export interface AppNotification {
   id: string;
@@ -423,6 +426,7 @@ export interface WhatsAppUserResolution {
     name: string;
     role: string;
     track?: string;
+    preferredLanguage?: 'en' | 'fr' | 'pt' | 'ar';
   };
   phoneNumberNormalized: string;
 }
@@ -455,6 +459,8 @@ export interface WhatsAppIncomingMessage {
   textBody?: string;
   metadata?: Record<string, any>;
   rawType?: string;
+  groupId?: string;
+  isGroup?: boolean;
 }
 
 export interface WhatsAppStoredMessage {
@@ -498,5 +504,181 @@ export interface WhatsAppAskParams {
   messageId: string;
   text: string;
 }
+
+// ==============================================================================
+// WHATSAPP GROUP MEMORY & TRUSTED KNOWLEDGE TYPES (Phase 5)
+// ==============================================================================
+
+export type WhatsAppGroupStatus =
+  | 'DISCOVERED'
+  | 'PENDING_APPROVAL'
+  | 'ACTIVE'
+  | 'BLOCKED'
+  | 'INACTIVE';
+
+export type WhatsAppJoinApprovalMode = 'approval_required' | 'auto_approve';
+export type WhatsAppGroupMemberRole = 'MEMBER' | 'ADMIN' | 'FACILITATOR' | 'ORGANIZER';
+export type WhatsAppGroupMemberStatus = 'ACTIVE' | 'BLOCKED' | 'LEFT';
+export type WhatsAppGroupMessageType =
+  | 'TEXT'
+  | 'IMAGE'
+  | 'DOCUMENT'
+  | 'AUDIO'
+  | 'VIDEO'
+  | 'LOCATION'
+  | 'STICKER'
+  | 'UNKNOWN';
+
+export type GroupMessageProcessingStatus = 'RECEIVED' | 'PROCESSED' | 'IGNORED' | 'FAILED';
+
+export type GroupMessageCategory =
+  | 'ANNOUNCEMENT'
+  | 'DECISION'
+  | 'DEADLINE'
+  | 'EVENT'
+  | 'ACTION'
+  | 'QUESTION'
+  | 'ANSWER'
+  | 'RESOURCE'
+  | 'CLARIFICATION'
+  | 'FEEDBACK'
+  | 'GENERAL_CHAT'
+  | 'UNKNOWN';
+
+export type GroupMemoryType =
+  | 'ANNOUNCEMENT'
+  | 'DECISION'
+  | 'DEADLINE'
+  | 'EVENT'
+  | 'ACTION'
+  | 'QUESTION'
+  | 'UNRESOLVED_QUESTION'
+  | 'RESOURCE'
+  | 'CLARIFICATION';
+
+export type GroupMemoryConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export type GroupMemoryApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
+export type GroupMemoryStatus = GroupMemoryApprovalStatus;
+
+export interface WhatsAppGroup {
+  id: string;
+  whatsappGroupId: string;
+  externalGroupId?: string;
+  name: string;
+  groupName?: string;
+  subject?: string;
+  description?: string;
+  inviteLink?: string;
+  joinApprovalMode?: WhatsAppJoinApprovalMode;
+  programmeId?: string;
+  status: WhatsAppGroupStatus;
+  isApproved: boolean;
+  isDemo?: boolean;
+  createdBy?: string;
+  participantCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WhatsAppGroupJoinRequest {
+  id: string;
+  groupId: string;
+  externalRequestId?: string;
+  userId?: string;
+  userName?: string;
+  phoneNumber: string;
+  phoneNumberNormalized?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requestedAt: string;
+  processedBy?: string;
+  processedAt?: string;
+}
+
+export interface WhatsAppGroupInvitation {
+  id: string;
+  groupId: string;
+  recipient: string;
+  templateName?: string;
+  status: 'SENT' | 'FAILED' | 'PENDING';
+  messageId?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface WhatsAppGroupIntegrationStatus {
+  enabled: boolean;
+  mode: 'OFF' | 'OBSERVE' | 'ACTIVE';
+  metaConfigured: boolean;
+  webhookConfigured: boolean;
+  groupsApiConfigured: boolean;
+  inviteTemplateConfigured: boolean;
+}
+
+export interface WhatsAppGroupMember {
+  id: string;
+  groupId: string;
+  userId: string;
+  role: WhatsAppGroupMemberRole;
+  status: WhatsAppGroupMemberStatus;
+  joinedAt: string;
+  createdAt: string;
+}
+
+export interface WhatsAppGroupMessage {
+  id: string;
+  whatsappMessageId: string;
+  groupId: string;
+  userId?: string | null;
+  senderPhoneNormalized?: string;
+  messageText: string;
+  messageType: WhatsAppGroupMessageType;
+  sentAt: string;
+  rawMetadata?: Record<string, any>;
+  processingStatus: GroupMessageProcessingStatus;
+  createdAt: string;
+}
+
+export interface GroupMemory {
+  id: string;
+  groupId: string;
+  sourceMessageId?: string | null;
+  createdByUserId?: string | null;
+  memoryType: GroupMemoryType;
+  title?: string;
+  content: string;
+  metadata?: Record<string, any>;
+  confidence: GroupMemoryConfidence;
+  approvalStatus: GroupMemoryApprovalStatus;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  supersededBy?: string | null;
+  isDemo?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupMessageClassification {
+  category: GroupMessageCategory;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  isDirectQuestionToBot: boolean;
+  isCommand: boolean;
+  commandName?: string;
+  shouldSilence: boolean; // True for GENERAL_CHAT, FEEDBACK, spontaneous unaddressed chatter
+  reason: string;
+}
+
+export interface GroupMemoryExtraction {
+  shouldExtract: boolean;
+  memoryType?: GroupMemoryType;
+  title?: string;
+  content?: string;
+  confidence: GroupMemoryConfidence;
+  defaultApprovalStatus: GroupMemoryApprovalStatus;
+  isContradictory?: boolean;
+  conflictDetails?: string;
+}
+
 
 

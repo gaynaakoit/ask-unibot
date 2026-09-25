@@ -598,6 +598,7 @@ export async function fetchUserProfileFromSupabase(userId = '00000000-0000-4000-
       track: data.track || 'Computer Vision & Natural Language for Agriculture',
       team: 'SunuAgri AI (Team #14)',
       role: data.role === 'admin' ? 'Organiser / Admin' : 'Participant / AI Solutions Track',
+      preferredLanguage: (data.preferred_language as any) || 'en',
       preferences: {
         smartSilenceActive: true,
         plainLanguageExplanationPreferred: true,
@@ -617,11 +618,18 @@ export async function updateUserProfileInSupabase(
   const client = getSupabaseServerClient();
   if (!client) return false;
   try {
+    const lookupId = userId === 'user-1' ? '00000000-0000-4000-a000-000000000001' : userId;
     const rowUpdates: any = { updated_at: new Date().toISOString() };
     if (updates.name) rowUpdates.name = updates.name;
     if (updates.track) rowUpdates.track = updates.track;
+    if (updates.preferredLanguage) rowUpdates.preferred_language = updates.preferredLanguage;
 
-    const { error } = await client.from('users').update(rowUpdates).eq('id', userId);
+    let { error } = await client.from('users').update(rowUpdates).eq('id', lookupId);
+    if (error && error.message && error.message.includes('column') && rowUpdates.preferred_language) {
+      delete rowUpdates.preferred_language;
+      const retry = await client.from('users').update(rowUpdates).eq('id', lookupId);
+      error = retry.error;
+    }
     if (error) {
       handleSupabaseError('users', 'updateProfile', error);
       return false;

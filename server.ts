@@ -33,6 +33,8 @@ import {
 import { whatsappIdentityService } from './src/services/whatsappIdentityService.js';
 import { whatsappWebhookService } from './src/services/whatsappWebhookService.js';
 import { executeAskUniBotCore } from './src/services/askUniBotCore.js';
+import { groupMemoryService } from './src/services/groupMemoryService.js';
+import { whatsappGroupService } from './src/services/whatsappGroupService.js';
 
 dotenv.config();
 
@@ -235,6 +237,366 @@ app.delete('/api/whatsapp/link', async (req, res) => {
   } catch (err: any) {
     console.warn('DELETE /api/whatsapp/link error:', err?.message || err);
     res.status(500).json({ error: 'Failed to unlink WhatsApp number' });
+  }
+});
+
+// ==============================================================================
+// GROUP MEMORY & GOVERNANCE ENDPOINTS (Phase 5)
+// ==============================================================================
+
+app.get('/api/groups', async (req, res) => {
+  try {
+    const groups = await groupMemoryService.listGroups();
+    res.json(groups);
+  } catch (err: any) {
+    console.warn('GET /api/groups error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to fetch WhatsApp groups' });
+  }
+});
+
+app.get('/api/group-memories', async (req, res) => {
+  try {
+    const groupId = (req.query.groupId as string) || 'grp-unipods-2026-demo';
+    const status = req.query.status as any;
+    const memories = await groupMemoryService.fetchMemories(groupId, status);
+    res.json(memories);
+  } catch (err: any) {
+    console.warn('GET /api/group-memories error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to fetch group memories' });
+  }
+});
+
+app.get('/api/groups/:groupId/memories', async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const status = req.query.status as any;
+    const memories = await groupMemoryService.fetchMemories(groupId, status);
+    res.json(memories);
+  } catch (err: any) {
+    console.warn('GET /api/groups/:groupId/memories error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to fetch group memories' });
+  }
+});
+
+app.get('/api/groups/:groupId/summary', async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const summary = await groupMemoryService.getGroupSummary(groupId);
+    res.json(summary);
+  } catch (err: any) {
+    console.warn('GET /api/groups/:groupId/summary error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to get group summary' });
+  }
+});
+
+app.post('/api/group-memories/:id/approve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const authUser = await getAuthenticatedUser(req);
+    const adminId = authUser?.id || req.body?.adminId || '00000000-0000-4000-a000-000000000003';
+    const memory = await groupMemoryService.approveMemory(id, adminId);
+    if (!memory) {
+      res.status(404).json({ error: 'Memory not found or could not be approved' });
+      return;
+    }
+    res.json({ success: true, memory });
+  } catch (err: any) {
+    console.warn('POST /api/group-memories/:id/approve error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to approve memory' });
+  }
+});
+
+app.post('/api/group-memories/:id/reject', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body || {};
+    const authUser = await getAuthenticatedUser(req);
+    const adminId = authUser?.id || req.body?.adminId || '00000000-0000-4000-a000-000000000003';
+    const memory = await groupMemoryService.rejectMemory(id, adminId, reason);
+    if (!memory) {
+      res.status(404).json({ error: 'Memory not found or could not be rejected' });
+      return;
+    }
+    res.json({ success: true, memory });
+  } catch (err: any) {
+    console.warn('POST /api/group-memories/:id/reject error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to reject memory' });
+  }
+});
+
+app.post('/api/group-memories/:id/supersede', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { supersedingMemoryId } = req.body || {};
+    if (!supersedingMemoryId) {
+      res.status(400).json({ error: 'supersedingMemoryId is required' });
+      return;
+    }
+    const authUser = await getAuthenticatedUser(req);
+    const adminId = authUser?.id || req.body?.adminId || '00000000-0000-4000-a000-000000000003';
+    const memory = await groupMemoryService.supersedeMemory(id, supersedingMemoryId, adminId);
+    if (!memory) {
+      res.status(404).json({ error: 'Memory not found or could not be superseded' });
+      return;
+    }
+    res.json({ success: true, memory });
+  } catch (err: any) {
+    console.warn('POST /api/group-memories/:id/supersede error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to supersede memory' });
+  }
+});
+
+app.post('/api/group-memories', async (req, res) => {
+  try {
+    const authUser = await getAuthenticatedUser(req);
+    const userId = authUser?.id || req.body?.userId || '00000000-0000-4000-a000-000000000001';
+    const { groupId, memoryType, title, content, confidence, approvalStatus } = req.body;
+    if (!groupId || !memoryType || !content) {
+      res.status(400).json({ error: 'groupId, memoryType, and content are required' });
+      return;
+    }
+
+    const memory = await groupMemoryService.saveMemory({
+      groupId,
+      createdByUserId: userId,
+      memoryType,
+      title: title || 'Manual Group Memory',
+      content,
+      confidence: confidence || 'HIGH',
+      approvalStatus: approvalStatus || (authUser?.role === 'admin' ? 'APPROVED' : 'PENDING'),
+      approvedBy: (authUser?.role === 'admin' || approvalStatus === 'APPROVED') ? userId : undefined,
+    });
+
+    res.json({ success: true, memory });
+  } catch (err: any) {
+    console.warn('POST /api/group-memories error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to save group memory' });
+  }
+});
+
+// ==============================================================================
+// WHATSAPP GROUPS MANAGEMENT VIA META GROUPS API (Phase 6.1)
+// ==============================================================================
+
+/**
+ * Helper to ensure user has Admin/Facilitator role for group operations
+ */
+async function verifyAdminForGroup(req: express.Request, res: express.Response) {
+  const authUser = await getAuthenticatedUser(req);
+  if (authUser && authUser.role !== 'admin' && authUser.role !== 'facilitator' && authUser.role !== 'organizer') {
+    res.status(403).json({ error: 'Accès réservé aux administrateurs ou organisateurs.' });
+    return null;
+  }
+  return authUser || { id: '00000000-0000-4000-a000-000000000003', name: 'Programme Admin', role: 'admin' };
+}
+
+// 1. Integration Status Diagnostics (Section 16)
+app.get('/api/whatsapp/group-integration/status', async (req, res) => {
+  try {
+    const status = await whatsappGroupService.getIntegrationStatus();
+    res.json(status);
+  } catch (err: any) {
+    console.warn('GET /api/whatsapp/group-integration/status error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to get group integration status' });
+  }
+});
+
+// 2. List WhatsApp Groups
+app.get('/api/whatsapp/groups', async (req, res) => {
+  try {
+    const groups = await whatsappGroupService.getActiveGroups();
+    res.json(groups);
+  } catch (err: any) {
+    console.warn('GET /api/whatsapp/groups error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to fetch WhatsApp groups' });
+  }
+});
+
+// 3. Create WhatsApp Group via Meta Groups API
+app.post('/api/whatsapp/groups', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  const { subject, description, joinApprovalMode } = req.body || {};
+  if (!subject || typeof subject !== 'string' || subject.trim() === '') {
+    res.status(400).json({ error: 'Le sujet (nom) du groupe est obligatoire.' });
+    return;
+  }
+
+  try {
+    const group = await whatsappGroupService.createGroup({
+      subject,
+      description,
+      joinApprovalMode,
+      createdByUserId: admin.id,
+    });
+    res.status(201).json({ success: true, group });
+  } catch (err: any) {
+    console.warn('POST /api/whatsapp/groups error:', err?.message || err);
+    if (err.code === 'META_GROUP_CAPACITY_ERROR' || (err.message && err.message.includes('META_GROUP_CAPACITY_ERROR'))) {
+      res.status(422).json({
+        error: "Limite de capacité de groupes atteinte sur votre compte WhatsApp Business.",
+        code: 'META_GROUP_CAPACITY_ERROR',
+        details: err.message,
+      });
+      return;
+    }
+    res.status(500).json({ error: err.message || 'Erreur lors de la création du groupe' });
+  }
+});
+
+// 4. Get Group Details
+app.get('/api/whatsapp/groups/:groupId', async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const group = await whatsappGroupService.getGroup(groupId);
+    if (!group) {
+      res.status(404).json({ error: 'Groupe introuvable' });
+      return;
+    }
+    res.json(group);
+  } catch (err: any) {
+    console.warn('GET /api/whatsapp/groups/:groupId error:', err?.message || err);
+    res.status(500).json({ error: 'Erreur lors de la récupération du groupe' });
+  }
+});
+
+// 5. Update Group Settings
+app.patch('/api/whatsapp/groups/:groupId', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  const { groupId } = req.params;
+  const { subject, description, joinApprovalMode, status } = req.body || {};
+
+  try {
+    const updated = await whatsappGroupService.updateGroupSettings(groupId, {
+      subject,
+      description,
+      joinApprovalMode,
+      status,
+    });
+    if (!updated) {
+      res.status(404).json({ error: 'Groupe introuvable' });
+      return;
+    }
+    res.json({ success: true, group: updated });
+  } catch (err: any) {
+    console.warn('PATCH /api/whatsapp/groups/:groupId error:', err?.message || err);
+    res.status(500).json({ error: 'Erreur lors de la mise à jour du groupe' });
+  }
+});
+
+// 6. Get Group Invite Link
+app.get('/api/whatsapp/groups/:groupId/invite-link', async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const result = await whatsappGroupService.getInviteLink(groupId);
+    res.json(result);
+  } catch (err: any) {
+    console.warn('GET /api/whatsapp/groups/:groupId/invite-link error:', err?.message || err);
+    res.status(500).json({ error: err.message || "Impossible de récupérer le lien d'invitation" });
+  }
+});
+
+// 7. Reset Group Invite Link
+app.post('/api/whatsapp/groups/:groupId/invite-link/reset', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  try {
+    const { groupId } = req.params;
+    const result = await whatsappGroupService.resetInviteLink(groupId);
+    res.json({ success: true, inviteLink: result.inviteLink });
+  } catch (err: any) {
+    console.warn('POST /api/whatsapp/groups/:groupId/invite-link/reset error:', err?.message || err);
+    res.status(500).json({ error: err.message || 'Impossible de réinitialiser le lien' });
+  }
+});
+
+// 8. Get Group Join Requests
+app.get('/api/whatsapp/groups/:groupId/join-requests', async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const requests = await whatsappGroupService.getJoinRequests(groupId);
+    res.json(requests);
+  } catch (err: any) {
+    console.warn('GET /api/whatsapp/groups/:groupId/join-requests error:', err?.message || err);
+    res.status(500).json({ error: 'Impossible de récupérer les demandes d’adhésion' });
+  }
+});
+
+// 9. Approve Group Join Request
+app.post('/api/whatsapp/groups/:groupId/join-requests/:requestId/approve', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  try {
+    const { groupId, requestId } = req.params;
+    const result = await whatsappGroupService.approveJoinRequest(groupId, requestId, admin.id);
+    res.json(result);
+  } catch (err: any) {
+    console.warn('POST /api/whatsapp/groups/:groupId/join-requests/:requestId/approve error:', err?.message || err);
+    res.status(500).json({ error: err.message || 'Impossible d’approuver la demande' });
+  }
+});
+
+// 10. Reject Group Join Request
+app.post('/api/whatsapp/groups/:groupId/join-requests/:requestId/reject', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  try {
+    const { groupId, requestId } = req.params;
+    const result = await whatsappGroupService.rejectJoinRequest(groupId, requestId, admin.id);
+    res.json(result);
+  } catch (err: any) {
+    console.warn('POST /api/whatsapp/groups/:groupId/join-requests/:requestId/reject error:', err?.message || err);
+    res.status(500).json({ error: err.message || 'Impossible de rejeter la demande' });
+  }
+});
+
+// 11. Remove Participant
+app.delete('/api/whatsapp/groups/:groupId/participants/:participantId', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  try {
+    const { groupId, participantId } = req.params;
+    const result = await whatsappGroupService.removeParticipant(groupId, participantId);
+    res.json(result);
+  } catch (err: any) {
+    console.warn('DELETE /api/whatsapp/groups/:groupId/participants/:participantId error:', err?.message || err);
+    res.status(500).json({ error: err.message || 'Impossible de retirer le participant' });
+  }
+});
+
+// 12. Send WhatsApp Invitations via Meta Template
+app.post('/api/whatsapp/groups/:groupId/invitations/send', async (req, res) => {
+  const admin = await verifyAdminForGroup(req, res);
+  if (!admin) return;
+
+  const { groupId } = req.params;
+  const { recipients } = req.body || {};
+
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    res.status(400).json({ error: 'Veuillez fournir au moins un destinataire (numéro de téléphone).' });
+    return;
+  }
+
+  try {
+    const result = await whatsappGroupService.sendGroupInvitations(groupId, recipients, admin.id);
+    res.json(result);
+  } catch (err: any) {
+    console.warn('POST /api/whatsapp/groups/:groupId/invitations/send error:', err?.message || err);
+    if (err.code === 'TEMPLATE_NOT_CONFIGURED' || (err.message && err.message.includes('template'))) {
+      res.status(400).json({
+        error: "Le template d'invitation WhatsApp n'est pas encore configuré dans Meta.",
+        code: 'TEMPLATE_NOT_CONFIGURED',
+      });
+      return;
+    }
+    res.status(500).json({ error: err.message || 'Erreur lors de l’envoi des invitations' });
   }
 });
 
@@ -594,7 +956,7 @@ app.get('/api/reminders', async (req, res) => {
 
 // 10. GROUNDED Q&A ENDPOINT
 app.post('/api/ask', async (req, res) => {
-  const { query, activeDecisions, userId, participantName, sources } = req.body;
+  const { query, activeDecisions, userId, participantName, sources, groupId, targetLanguage } = req.body;
 
   if (!query || typeof query !== 'string') {
     res.status(400).json({ error: 'Query string is required' });
@@ -604,6 +966,7 @@ app.post('/api/ask', async (req, res) => {
   const authUser = await getAuthenticatedUser(req);
   const resolvedUserId = authUser?.id || userId || '00000000-0000-4000-a000-000000000001';
   const resolvedParticipantName = authUser?.name || participantName || 'Participant';
+  const resolvedTargetLanguage = targetLanguage || (authUser as any)?.preferred_language || (authUser as any)?.preferredLanguage;
 
   try {
     const finalResponse = await executeAskUniBotCore({
@@ -613,6 +976,8 @@ app.post('/api/ask', async (req, res) => {
       channel: 'WEB',
       sources,
       activeDecisions,
+      groupId,
+      targetLanguage: resolvedTargetLanguage,
     });
 
     res.json(finalResponse);

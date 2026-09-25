@@ -1,11 +1,13 @@
 /**
  * Confidence Badge Component
  * Accessible, clear indicator for AI answer confidence states.
+ * Localized labels for participants while preserving internal enum values.
  */
 
 import React from 'react';
 import { CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
 import { ConfidenceState } from '../../types';
+import { useI18n } from '../../i18n';
 
 interface ConfidenceBadgeProps {
   confidence: ConfidenceState;
@@ -18,6 +20,8 @@ export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({
   size = 'md',
   showDescription = false,
 }) => {
+  const { t } = useI18n();
+
   if (confidence === 'CONFIRMED') {
     return (
       <div className="inline-flex flex-col gap-1">
@@ -32,11 +36,11 @@ export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({
           }`}
         >
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-          <span>CONFIRMED</span>
+          <span>{t('ask.confirmed')}</span>
         </span>
         {showDescription && (
           <span className="text-[11px] text-emerald-700">
-            Verified by current approved UniPods programme documentation
+            {t('ask.evidence')} — Verified by official programme documentation
           </span>
         )}
       </div>
@@ -57,11 +61,11 @@ export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({
           }`}
         >
           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-          <span>NEEDS ADMIN CONFIRMATION</span>
+          <span>{t('ask.needsConfirmation')}</span>
         </span>
         {showDescription && (
           <span className="text-[11px] text-amber-800">
-            Conflicting information detected across recent announcements
+            {t('ask.conflictDetected')} — Clarification requested from coordination team
           </span>
         )}
       </div>
@@ -82,7 +86,7 @@ export const ConfidenceBadge: React.FC<ConfidenceBadgeProps> = ({
         }`}
       >
         <HelpCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
-        <span>NOT FOUND IN OFFICIAL UPDATES</span>
+        <span>{t('ask.notFound')}</span>
       </span>
       {showDescription && (
         <span className="text-[11px] text-rose-700">

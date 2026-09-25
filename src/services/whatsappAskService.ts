@@ -17,6 +17,7 @@
 
 import { AiResponse } from '../types.js';
 import { executeAskUniBotCore } from './askUniBotCore.js';
+import { SupportedLanguage } from '../i18n/index.js';
 
 export interface ProcessWhatsAppQuestionParams {
   userId: string;
@@ -24,6 +25,8 @@ export interface ProcessWhatsAppQuestionParams {
   phoneNumber: string;
   messageId: string;
   text: string;
+  groupId?: string;
+  targetLanguage?: SupportedLanguage;
 }
 
 export class WhatsAppAskService {
@@ -31,7 +34,7 @@ export class WhatsAppAskService {
    * Adapts and routes an authenticated WhatsApp user query into the unified Ask UniBot engine.
    */
   public async processWhatsAppQuestion(params: ProcessWhatsAppQuestionParams): Promise<AiResponse> {
-    const { userId, participantName, messageId, text } = params;
+    const { userId, participantName, messageId, text, groupId, targetLanguage } = params;
 
     return executeAskUniBotCore({
       query: text,
@@ -39,6 +42,8 @@ export class WhatsAppAskService {
       participantName,
       channel: 'WHATSAPP',
       messageId,
+      groupId,
+      targetLanguage,
     });
   }
 }

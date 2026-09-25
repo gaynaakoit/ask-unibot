@@ -168,13 +168,13 @@ export class WhatsAppIdentityService {
     }
 
     // Retrieve user details from public.users
-    let userRecord: { id: string; email: string; name: string; role: string; track?: string } | undefined;
+    let userRecord: { id: string; email: string; name: string; role: string; track?: string; preferredLanguage?: 'en' | 'fr' | 'pt' | 'ar' } | undefined;
 
     if (client) {
       try {
         const { data: uData, error: uErr } = await client
           .from('users')
-          .select('id, email, name, role, track')
+          .select('id, email, name, role, track, preferred_language')
           .eq('id', identity.userId)
           .maybeSingle();
 
@@ -185,6 +185,7 @@ export class WhatsAppIdentityService {
             name: uData.name,
             role: uData.role,
             track: uData.track,
+            preferredLanguage: (uData.preferred_language as any) || 'en',
           };
         }
       } catch {
@@ -201,6 +202,7 @@ export class WhatsAppIdentityService {
           name: 'Awa Diop',
           role: 'participant',
           track: 'Computer Vision & Natural Language for Agriculture',
+          preferredLanguage: 'en',
         };
       } else if (identity.userId === '00000000-0000-4000-a000-000000000002') {
         userRecord = {
@@ -209,6 +211,7 @@ export class WhatsAppIdentityService {
           name: 'Dr. Aminata Touré',
           role: 'admin',
           track: 'UniPods Programme Facilitation',
+          preferredLanguage: 'fr',
         };
       } else {
         userRecord = {
@@ -216,6 +219,7 @@ export class WhatsAppIdentityService {
           email: `${identity.userId}@unipods.example.org`,
           name: identity.displayName || 'UniPods Participant',
           role: 'participant',
+          preferredLanguage: 'en',
         };
       }
     }
@@ -403,6 +407,33 @@ export class WhatsAppIdentityService {
     }
 
     return Boolean(identity);
+  }
+
+  /**
+   * Persists the user's preferred language in public.users
+   */
+  public async updateUserPreferredLanguage(
+    userId: string,
+    language: 'en' | 'fr' | 'pt' | 'ar'
+  ): Promise<boolean> {
+    const client = getSupabaseServerClient();
+    if (client) {
+      try {
+        const lookupId = userId === 'user-1' ? '00000000-0000-4000-a000-000000000001' : userId;
+        const { error } = await client
+          .from('users')
+          .update({
+            preferred_language: language,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', lookupId);
+
+        if (!error) return true;
+      } catch (err: any) {
+        console.warn('[WhatsAppIdentity] Error updating preferred_language:', err?.message || err);
+      }
+    }
+    return true;
   }
 }
 

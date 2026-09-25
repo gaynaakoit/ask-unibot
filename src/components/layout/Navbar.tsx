@@ -20,9 +20,11 @@ import {
   ChevronDown,
   Shield,
   UserCheck,
+  Globe,
 } from 'lucide-react';
 import { ActiveTab, UserProfile } from '../../types';
 import { NotificationsPopover } from '../common/NotificationsPopover';
+import { useI18n, SUPPORTED_LANGUAGES, SupportedLanguage } from '../../i18n';
 
 interface NavbarProps {
   isAdminMode: boolean;
@@ -50,6 +52,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showSilenceInfo, setShowSilenceInfo] = useState(false);
   const [showDemoTour, setShowDemoTour] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const { language, setLanguage, t } = useI18n();
 
   const displayName = userProfile?.name || (isAdminMode ? 'Dr. Aminata Touré' : 'Participant');
   const initials = displayName
@@ -143,6 +147,65 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Notifications Popover */}
             <NotificationsPopover userId={userProfile?.email} />
+
+            {/* Language Selector Dropdown */}
+            <div className="relative">
+              <button
+                id="btn-language-selector"
+                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors shadow-xs"
+                title={t('common.selectLanguage')}
+                aria-label="Select interface language"
+              >
+                <Globe className="w-3.5 h-3.5 text-blue-900" />
+                <span className="hidden sm:inline font-medium">
+                  {SUPPORTED_LANGUAGES[language]?.flag} {SUPPORTED_LANGUAGES[language]?.name}
+                </span>
+                <span className="sm:hidden font-medium">
+                  {SUPPORTED_LANGUAGES[language]?.flag}
+                </span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+
+              {showLanguageMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowLanguageMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      {t('common.selectLanguage')}
+                    </div>
+                    {(Object.keys(SUPPORTED_LANGUAGES) as SupportedLanguage[]).map((langKey) => {
+                      const langMeta = SUPPORTED_LANGUAGES[langKey];
+                      const isSelected = language === langKey;
+                      return (
+                        <button
+                          key={langKey}
+                          id={`btn-lang-${langKey}`}
+                          onClick={() => {
+                            setLanguage(langKey);
+                            setShowLanguageMenu(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                            isSelected
+                              ? 'bg-blue-50 text-blue-900 font-bold'
+                              : 'text-slate-700 hover:bg-slate-100 font-medium'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="text-sm">{langMeta.flag}</span>
+                            <span>{langMeta.nativeName}</span>
+                          </span>
+                          {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Quick Demo Walkthrough Guide Button for Judges */}
             <button

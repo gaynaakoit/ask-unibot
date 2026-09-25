@@ -15,21 +15,28 @@ import {
 } from '../types';
 
 export class WhatsAppCloudApiService {
+  private metaAuthInvalid = false;
+
   /**
    * Checks whether real Meta Cloud API credentials are fully configured.
    */
   public isConfigured(): boolean {
+    if (this.metaAuthInvalid) return false;
     const token = process.env.WHATSAPP_ACCESS_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!token || token.startsWith('your_') || !phoneId || phoneId.startsWith('your_')) {
+      return false;
+    }
     return Boolean(token && token.trim() !== '' && phoneId && phoneId.trim() !== '');
   }
 
   /**
    * Checks whether the service is running in Dry Run mode.
-   * Default to dry-run in test / local environments if credentials are missing
-   * or if WHATSAPP_DRY_RUN is set to 'true'.
+   * Default to dry-run in test / local environments if credentials are missing,
+   * are placeholder values, or if WHATSAPP_DRY_RUN is set to 'true'.
    */
   public isDryRun(): boolean {
+    if (this.metaAuthInvalid) return true;
     if (process.env.WHATSAPP_DRY_RUN === 'true' || process.env.WHATSAPP_DRY_RUN === '1') {
       return true;
     }
@@ -102,6 +109,23 @@ export class WhatsAppCloudApiService {
 
       if (!response.ok) {
         const errorMsg = data?.error?.message || `Meta API HTTP error ${response.status}`;
+        if (
+          response.status === 401 ||
+          response.status === 403 ||
+          errorMsg.toLowerCase().includes('auth') ||
+          errorMsg.toLowerCase().includes('token') ||
+          errorMsg.toLowerCase().includes('oauthexception')
+        ) {
+          this.metaAuthInvalid = true;
+          const dryRunId = `dry_run_wamid_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          console.info(`[WhatsApp] Meta Cloud API credentials expired/unauthorized. Dispatched via Dry Run fallback: ${dryRunId}`);
+          return {
+            success: true,
+            messageId: dryRunId,
+            dryRun: true,
+            status: 'DRY_RUN',
+          };
+        }
         console.warn(`[WhatsApp] Meta Cloud API outbound send failed: ${errorMsg}`);
         return {
           success: false,

@@ -29,7 +29,8 @@ export class GeminiService {
     sources?: Source[],
     activeDecisions?: MeetingDecision[],
     userId?: string,
-    participantName?: string
+    participantName?: string,
+    targetLanguage?: string
   ): Promise<AiResponse> {
     // If dynamic sources were provided, ensure knowledgeService is kept synchronized
     if (sources && sources.length > 0) {
@@ -54,6 +55,7 @@ export class GeminiService {
           activeDecisions: decisions,
           userId,
           participantName,
+          targetLanguage,
         }),
       });
 

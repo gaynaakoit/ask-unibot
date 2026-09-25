@@ -4,8 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import { User, ShieldCheck, Bell, Sparkles, Check, Lock } from 'lucide-react';
+import { User, ShieldCheck, Bell, Sparkles, Check, Lock, Globe } from 'lucide-react';
 import { UserProfile } from '../../types';
+import { useI18n, SUPPORTED_LANGUAGES, SupportedLanguage } from '../../i18n';
 
 interface ProfileViewProps {
   user: UserProfile;
@@ -13,7 +14,9 @@ interface ProfileViewProps {
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdateUser }) => {
+  const { language, setLanguage, t } = useI18n();
   const [saved, setSaved] = useState(false);
+  const [preferredLang, setPreferredLang] = useState<SupportedLanguage>(user.preferredLanguage || language);
   const [plainPreference, setPlainPreference] = useState(user.preferences.plainLanguageExplanationPreferred);
   const [smartSilence, setSmartSilence] = useState(user.preferences.smartSilenceActive);
   const [digestFreq, setDigestFreq] = useState(user.preferences.digestFrequency);
@@ -29,12 +32,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdateUser }) 
 
   const handleSave = () => {
     onUpdateUser({
+      preferredLanguage: preferredLang,
       preferences: {
         plainLanguageExplanationPreferred: plainPreference,
         smartSilenceActive: smartSilence,
         digestFrequency: digestFreq,
       },
     });
+    setLanguage(preferredLang);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -123,6 +128,27 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ user, onUpdateUser }) 
               </span>
             </div>
           </label>
+
+          <div className="p-3 rounded-xl border border-slate-200 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Globe className="w-4 h-4 text-blue-900" />
+              <div>
+                <span className="font-bold text-slate-900 block">{t('common.language')} / Langue</span>
+                <span className="text-slate-700">Interface & Ask UniBot conversational response language.</span>
+              </div>
+            </div>
+            <select
+              value={preferredLang}
+              onChange={(e) => setPreferredLang(e.target.value as SupportedLanguage)}
+              className="p-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800"
+            >
+              {(Object.keys(SUPPORTED_LANGUAGES) as SupportedLanguage[]).map((code) => (
+                <option key={code} value={code}>
+                  {SUPPORTED_LANGUAGES[code].flag} {SUPPORTED_LANGUAGES[code].nativeName} ({SUPPORTED_LANGUAGES[code].name})
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div className="p-3 rounded-xl border border-slate-200 flex items-center justify-between">
             <div>
